@@ -1,0 +1,48 @@
+url: https://github.com/Duan-Lab1/Tumor2Line
+
+template:
+  bootstrap: 5
+
+reference:
+  - title: "Data Preparation"
+    desc: >
+      Functions for preparing query and candidate cell-line transcriptomic data
+    contents:
+      - prepare_tumor2line_data
+      - build_scaled_pca_representation
+  - title: "Population-Aware Matching"
+    desc: >
+      Core functions for query-to-cell-line matching with unbalanced optimal transport
+    contents:
+      - run_tumor2line
+      - run_uot_matching
+      - get_top_matches
+  - title: "Single-Query Prediction"
+    desc: >
+      Functions for building reusable reference cohorts and predicting candidate cell lines for newly arriving query samples
+    contents:
+      - fit_tumor2line_reference
+      - predict_tumor2line
+  - title: "Evaluation"
+    desc: >
+      Functions for evaluating matching performance when known query-cell-line pairs are available
+    contents:
+      - evaluate_tumor2line
+  - title: "Visualization"
+    desc: >
+      Functions for visualizing Tumor2Line results
+    contents:
+      - plot_tumor2line_accuracy
+      - plot_true_pair_ranks
+      - plot_top_matches
+  - title: "S3 Methods"
+    contents:
+      - print.Tumor2LineResult
+      - print.Tumor2LineEvaluation
+
+articles:
+  - title: "Tutorial"
+    navbar: ~
+    contents:
+      - Tumor2Line-tutorial
+      - Tumor2Line-single-query-prediction

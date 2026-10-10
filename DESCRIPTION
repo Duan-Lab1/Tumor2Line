@@ -1,0 +1,46 @@
+Package: Tumor2Line
+Type: Package
+Title: Matching Tumor-Derived Query Samples to Cancer Cell Lines with Population-Aware Transcriptomic Modeling
+Version: 0.1.2
+Authors@R: c(
+    person("Hua", "Zou", email = "zouhua1@outlook.com", role = c("aut", "cre")),
+    person("Bin", "Duan", email = "binduan@sjtu.edu.cn", role = c("aut"))
+  )
+Date: 2026-10-10
+Description: Selecting cancer cell line models that faithfully represent patient
+  tumors or other tumor-derived query samples is an important step toward
+  improving the biological relevance and translational value of preclinical
+  cancer studies. Tumor2Line provides a transcriptome-based framework for
+  matching query populations, including tumors, patient-derived organoids,
+  patient-derived xenografts, and related models, to candidate cancer cell lines.
+  The workflow integrates expression preprocessing, a shared scaled principal
+  component representation, and population-aware matching with unbalanced
+  optimal transport. Known query-cell-line pairs are not required for matching
+  and, when available, can be used to evaluate recovery with Top1 accuracy,
+  Top3 accuracy, mean reciprocal rank, and true-pair rank. Visualization
+  utilities support interpretation of candidate rankings and known-pair recovery.
+License: GPL-3 + file LICENSE
+Encoding: UTF-8
+LazyData: true
+LazyDataCompression: gzip
+RoxygenNote: 7.3.3
+Depends:
+    R (>= 4.1.0)
+Imports:
+    dplyr,
+    ggplot2,
+    rlang,
+    stats,
+    tibble,
+    utils
+Suggests:
+    devtools,
+    knitr,
+    pkgdown,
+    rmarkdown,
+    roxygen2,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+BugReports: https://github.com/Duan-Lab1/Tumor2Line/issues
+URL: https://github.com/Duan-Lab1/Tumor2Line
