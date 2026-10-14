@@ -61,7 +61,7 @@
                         <h4 data-toc-skip class="author">Tumor2Line
 developers</h4>
             
-            <h4 data-toc-skip class="date">2026-10-10</h4>
+            <h4 data-toc-skip class="date">2026-10-14</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/Duan-Lab1/Tumor2Line/blob/HEAD/vignettes/Tumor2Line-single-query-prediction.Rmd"><code>vignettes/Tumor2Line-single-query-prediction.Rmd</code></a></small>
       <div class="d-none name"><code>Tumor2Line-single-query-prediction.Rmd</code></div>
@@ -77,38 +77,33 @@ cancer cell lines using transcriptomic similarity at the
 <strong>population level</strong>. Query samples may represent patient
 tumors, PDOs, PDXs, organoids, or other tumor-derived models.</p>
 <div class="figure" style="text-align: center">
-<img src="figures/workflow.jpg" alt="The Overview of Tumor2Line" width="80%" height="80%"><p class="caption">
+<img src="figures/workflow.jpg" alt="Overview of the Tumor2Line workflow for population-aware matching between query samples and candidate cancer cell lines." width="80%" height="80%"><p class="caption">
 The Overview of Tumor2Line
 </p>
 </div>
 <p>The standard Tumor2Line workflow constructs a shared molecular
 representation using scaled PCA and performs population-aware matching
 with unbalanced optimal transport (uOT).</p>
-<p>In many practical applications, however, a user may already have an
+<p>In many practical applications, a user may already have an
 established reference query cohort and later receive a single new query
-sample. Tumor2Line therefore supports two conceptually different
-single-query prediction strategies:</p>
+sample. Because Tumor2Line is designed as a population-level matching
+framework, the recommended strategy is to add the new query to the
+existing reference query cohort and rerun Tumor2Line on the combined
+query population.</p>
+<p>This tutorial demonstrates that workflow using the bundled
+PDMR-format example dataset:</p>
 <ol style="list-style-type: decimal">
-<li>
-<strong>Population mode</strong>: project the new query into the
-frozen reference molecular space, add it to the reference query
-population, and rerun population-aware uOT matching;</li>
-<li>
-<strong>Transfer mode</strong>: project the new query into the same
-reference molecular space, identify the most similar reference queries,
-and transfer their existing Tumor2Line cell-line rankings to the new
-query.</li>
+<li>hold out one PDMR tumor and treat it as a newly arriving query;</li>
+<li>use the remaining tumors as the reference query cohort;</li>
+<li>add the held-out tumor back to the reference cohort;</li>
+<li>rerun the complete Tumor2Line workflow on the combined query
+population;</li>
+<li>extract the candidate cell-line ranking for the new query;</li>
+<li>use the known PDMR pair only at the end to evaluate the
+prediction.</li>
 </ol>
-<p>Population mode retains the full population-aware matching framework
-and is the recommended strategy when a reference query cohort is
-available. Transfer mode provides a faster approximate prediction
-strategy and uses <code>k = 5</code> similar reference queries by
-default.</p>
-<p>This tutorial uses the bundled PDMR-format example dataset. One PDMR
-tumor is held out and treated as a newly arriving query sample. The
-remaining tumors form the reference query cohort. The known PDMR pairing
-information is retained only for final evaluation and is not used to
-construct either prediction.</p>
+<p>The held-out PDMR pairing information is not used during Tumor2Line
+matching.</p>
 </div>
 <div class="section level2">
 <h2 id="load-tumor2line">2. Load Tumor2Line<a class="anchor" aria-label="anchor" href="#load-tumor2line"></a>
@@ -207,19 +202,19 @@ candidate pool.</li>
 <h2 id="create-a-held-out-new-query">4. Create a held-out new query<a class="anchor" aria-label="anchor" href="#create-a-held-out-new-query"></a>
 </h2>
 <p>The PDMR dataset contains multiple query samples. To mimic a
-realistic single-query prediction scenario, one tumor is held out and
-treated as a newly arriving query.</p>
-<p>The held-out query must not participate in reference feature
-selection, scaling, PCA fitting, or reference uOT matching.</p>
+realistic single-query application, one tumor is held out and treated as
+a newly arriving query.</p>
+<p>The held-out query is initially removed from the reference query
+cohort. Its known <code>PairID</code> is retained separately and is used
+only for final evaluation.</p>
 <div class="section level3">
 <h3 id="identify-eligible-query-samples">4.1 Identify eligible query samples<a class="anchor" aria-label="anchor" href="#identify-eligible-query-samples"></a>
 </h3>
-<p>Transfer mode uses five similar reference queries by default.
-Therefore, the held-out query is selected from a lineage containing at
-least six query samples: one sample can be held out while at least five
-remain in the reference cohort.</p>
-<p>We additionally require the held-out sample to have a known PDMR pair
-so that the prediction can be evaluated at the end of the tutorial.</p>
+<p>The held-out sample is selected from a lineage containing at least
+two query samples so that at least one query from the same lineage
+remains in the reference cohort. We additionally require the held-out
+sample to have a known PDMR pair so that its final ranking can be
+evaluated.</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">query_ids</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">query_expr</span><span class="op">$</span><span class="va">SampleID</span><span class="op">)</span></span>
 <span><span class="va">cellline_ids</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">cellline_expr</span><span class="op">$</span><span class="va">SampleID</span><span class="op">)</span></span>
@@ -229,7 +224,7 @@ so that the prediction can be evaluated at the end of the tutorial.</p>
 <span></span>
 <span><span class="va">query_lineage_count</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">query_meta</span><span class="op">$</span><span class="va">lineage</span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">eligible_lineages</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">query_lineage_count</span><span class="op">[</span><span class="va">query_lineage_count</span> <span class="op">&gt;=</span> <span class="fl">6</span><span class="op">]</span><span class="op">)</span></span>
+<span><span class="va">eligible_lineages</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">query_lineage_count</span><span class="op">[</span><span class="va">query_lineage_count</span> <span class="op">&gt;=</span> <span class="fl">2</span><span class="op">]</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">eligible_lineages</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">intersect</a></span><span class="op">(</span></span>
 <span>  <span class="va">eligible_lineages</span>,</span>
@@ -244,7 +239,9 @@ so that the prediction can be evaluated at the end of the tutorial.</p>
 <span>  <span class="va">query_meta</span><span class="op">$</span><span class="va">lineage</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">eligible_lineages</span> <span class="op">&amp;</span></span>
 <span>    <span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">query_meta</span><span class="op">$</span><span class="va">PairID</span><span class="op">)</span> <span class="op">&amp;</span></span>
 <span>    <span class="va">query_meta</span><span class="op">$</span><span class="va">PairID</span> <span class="op">!=</span> <span class="st">""</span> <span class="op">&amp;</span></span>
-<span>    <span class="va">query_meta</span><span class="op">$</span><span class="va">PairID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">valid_cellline_pair_ids</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
+<span>    <span class="va">query_meta</span><span class="op">$</span><span class="va">PairID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">valid_cellline_pair_ids</span>, ,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span>
 <span></span>
 <span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">eligible_query_meta</span><span class="op">)</span> <span class="op">==</span> <span class="fl">0</span><span class="op">)</span> <span class="op">{</span></span>
 <span>  <span class="kw"><a href="https://rdrr.io/r/base/stop.html" class="external-link">stop</a></span><span class="op">(</span></span>
@@ -281,13 +278,13 @@ cohort:</p>
 <p>All candidate cell lines remain available. This includes the true
 paired cell line of the held-out PDMR query because the practical
 prediction task is to determine where that candidate appears in the
-ranking.</p>
+final ranking.</p>
 </div>
 <div class="section level3">
 <h3 id="separate-ground-truth-from-model-inputs">4.3 Separate ground truth from model inputs<a class="anchor" aria-label="anchor" href="#separate-ground-truth-from-model-inputs"></a>
 </h3>
-<p>The known <code>PairID</code> of the held-out PDMR query is used only
-after prediction.</p>
+<p>The known <code>PairID</code> of the held-out PDMR query is retained
+only for evaluation.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">heldout_pair_id</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">new_query_meta_full</span><span class="op">$</span><span class="va">PairID</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span><span class="op">)</span></span>
 <span><span class="va">true_cellline_ids</span> <span class="op">&lt;-</span> <span class="va">cellline_meta</span><span class="op">$</span><span class="va">SampleID</span><span class="op">[</span><span class="va">cellline_meta</span><span class="op">$</span><span class="va">PairID</span> <span class="op">==</span> <span class="va">heldout_pair_id</span><span class="op">]</span></span>
@@ -303,28 +300,41 @@ after prediction.</p>
 <span><span class="va">heldout_truth</span></span>
 <span><span class="co">#&gt;                    Query_ID        PairID lineage      True_CellLine_ID</span></span>
 <span><span class="co">#&gt; 1 435261__313_R__ORIGINATOR 435261__313-R    COAD 435261__313_R__J1_PDC</span></span></code></pre></div>
-<p>Construct model metadata without pairing information:</p>
+<p>Construct metadata for Tumor2Line without pairing information:</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">reference_sample_ids</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
 <span>  <span class="va">reference_query_expr</span><span class="op">$</span><span class="va">SampleID</span>,</span>
-<span>  <span class="va">cellline_expr</span><span class="op">$</span><span class="va">SampleID</span><span class="op">)</span></span>
+<span>  <span class="va">cellline_expr</span><span class="op">$</span><span class="va">SampleID</span></span>
+<span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">reference_phenotype</span> <span class="op">&lt;-</span> <span class="va">phenotype</span><span class="op">[</span><span class="va">phenotype</span><span class="op">$</span><span class="va">SampleID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">reference_sample_ids</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
-<span><span class="va">reference_phenotype_model</span> <span class="op">&lt;-</span> <span class="va">reference_phenotype</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">setdiff</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">reference_phenotype</span><span class="op">)</span>, <span class="st">"PairID"</span><span class="op">)</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
-<span><span class="va">new_query_metadata</span> <span class="op">&lt;-</span> <span class="va">new_query_meta_full</span><span class="op">[</span>, <span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">setdiff</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">new_query_meta_full</span><span class="op">)</span>, <span class="st">"PairID"</span><span class="op">)</span>, drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span></code></pre></div>
-<p>The held-out PDMR pair is therefore not available to Tumor2Line
-during reference construction or prediction.</p>
+<span><span class="va">reference_phenotype</span> <span class="op">&lt;-</span> <span class="va">phenotype</span><span class="op">[</span></span>
+<span>  <span class="va">phenotype</span><span class="op">$</span><span class="va">SampleID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">reference_sample_ids</span>, ,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span>
+<span></span>
+<span><span class="va">reference_phenotype_model</span> <span class="op">&lt;-</span> <span class="va">reference_phenotype</span><span class="op">[</span></span>
+<span>  ,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">setdiff</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">reference_phenotype</span><span class="op">)</span>, <span class="st">"PairID"</span><span class="op">)</span>,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span>
+<span></span>
+<span><span class="va">new_query_metadata</span> <span class="op">&lt;-</span> <span class="va">new_query_meta_full</span><span class="op">[</span></span>
+<span>  ,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">setdiff</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">new_query_meta_full</span><span class="op">)</span>, <span class="st">"PairID"</span><span class="op">)</span>,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span></code></pre></div>
+<p>The held-out PDMR pair is therefore unavailable to Tumor2Line during
+matching.</p>
 </div>
 </div>
 <div class="section level2">
 <h2 id="build-the-reference-tumor2line-cohort">5. Build the reference Tumor2Line cohort<a class="anchor" aria-label="anchor" href="#build-the-reference-tumor2line-cohort"></a>
 </h2>
-<p>The remaining PDMR tumors form the reference query cohort.</p>
-<p>A Tumor2Line reference stores both the population-aware matching
-result and the molecular transformation required to project future query
-samples into exactly the same scaled-PCA space.</p>
+<p>The remaining PDMR tumors form the reference query cohort. Before
+adding the new tumor, we can run Tumor2Line on this existing cohort to
+establish the reference population.</p>
 <div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">reference</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fit_tumor2line_reference.html">fit_tumor2line_reference</a></span><span class="op">(</span></span>
+<code class="sourceCode R"><span><span class="va">reference_result</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_tumor2line.html">run_tumor2line</a></span><span class="op">(</span></span>
 <span>  query_expr <span class="op">=</span> <span class="va">reference_query_expr</span>,</span>
 <span>  cellline_expr <span class="op">=</span> <span class="va">cellline_expr</span>,</span>
 <span>  phenotype <span class="op">=</span> <span class="va">reference_phenotype_model</span>,</span>
@@ -340,40 +350,43 @@ samples into exactly the same scaled-PCA space.</p>
 <span>  distance <span class="op">=</span> <span class="st">"euclidean"</span>,</span>
 <span>  epsilon <span class="op">=</span> <span class="fl">0.1</span>,</span>
 <span>  rho_query <span class="op">=</span> <span class="fl">1</span>,</span>
-<span>  rho_cellline <span class="op">=</span> <span class="fl">1</span></span>
+<span>  rho_cellline <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  evaluate <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">reference</span></span>
-<span><span class="co">#&gt; Tumor2Line reference</span></span>
-<span><span class="co">#&gt;   Reference queries: 102</span></span>
-<span><span class="co">#&gt;   Cell lines:        114</span></span>
-<span><span class="co">#&gt;   Selected genes:    10000</span></span>
-<span><span class="co">#&gt;   Selected PCs:      104</span></span>
-<span><span class="co">#&gt;   Candidate scope:   within_lineage</span></span></code></pre></div>
+<span><span class="va">reference_result</span></span>
+<span><span class="co">#&gt; Tumor2Line result</span></span>
+<span><span class="co">#&gt;   Queries:         102</span></span>
+<span><span class="co">#&gt;   Cell lines:      114</span></span>
+<span><span class="co">#&gt;   Lineages:        6</span></span>
+<span><span class="co">#&gt;   Selected genes:  10000</span></span>
+<span><span class="co">#&gt;   Selected PCs:    104</span></span>
+<span><span class="co">#&gt;   PCA threshold:   0.9</span></span>
+<span><span class="co">#&gt;   Maximum PCs:     NULL (no user-defined limit)</span></span>
+<span><span class="co">#&gt;   Candidate scope: within_lineage</span></span>
+<span><span class="co">#&gt;   Ranking rows:    2068</span></span></code></pre></div>
 <div class="section level3">
-<h3 id="reference-molecular-space">5.1 Reference molecular space<a class="anchor" aria-label="anchor" href="#reference-molecular-space"></a>
+<h3 id="reference-molecular-representation">5.1 Reference molecular representation<a class="anchor" aria-label="anchor" href="#reference-molecular-representation"></a>
 </h3>
-<p>The reference representation follows:</p>
+<p>Tumor2Line constructs the reference molecular representation
+using:</p>
 <pre class="text"><code>reference queries + candidate cell lines
         -&gt;
 log2(TPM + 1)
         -&gt;
-variable-gene selection
+gene filtering and variable-gene selection
         -&gt;
-gene-wise scaling
+joint gene-wise scaling
         -&gt;
 PCA
         -&gt;
 PCs reaching 90% cumulative variance
         -&gt;
 PC-wise scaling</code></pre>
-<p>The transformation is frozen after fitting. A future query is
-projected into this molecular space rather than causing the PCA model to
-be refitted.</p>
 <div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">reference</span><span class="op">$</span><span class="va">representation</span><span class="op">$</span><span class="va">n_pcs</span></span>
+<code class="sourceCode R"><span><span class="va">reference_result</span><span class="op">$</span><span class="va">representation</span><span class="op">$</span><span class="va">n_pcs</span></span>
 <span><span class="co">#&gt; [1] 104</span></span>
-<span><span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">reference</span><span class="op">$</span><span class="va">representation</span><span class="op">$</span><span class="va">variance</span><span class="op">)</span></span>
+<span><span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">reference_result</span><span class="op">$</span><span class="va">representation</span><span class="op">$</span><span class="va">variance</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   PC_index explained_variance cumulative_variance</span></span>
 <span><span class="co">#&gt; 1        1         0.10618510           0.1061851</span></span>
 <span><span class="co">#&gt; 2        2         0.09477912           0.2009642</span></span>
@@ -388,7 +401,7 @@ be refitted.</p>
 <p>The reference query cohort is matched jointly to the candidate
 cell-line population using uOT.</p>
 <div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">reference</span><span class="op">$</span><span class="va">ranking</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">reference_result</span><span class="op">$</span><span class="va">ranking</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 6 × 15</span></span></span>
 <span><span class="co">#&gt;   Method     lineage Query_ID    CellLine_ID transport_mass matching_probability</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
@@ -429,294 +442,192 @@ that candidate cell line from the query population;</li>
 </div>
 </div>
 <div class="section level2">
-<h2 id="single-query-prediction-population-mode">6. Single-query prediction: population mode<a class="anchor" aria-label="anchor" href="#single-query-prediction-population-mode"></a>
+<h2 id="add-the-new-query-to-the-reference-population">6. Add the new query to the reference population<a class="anchor" aria-label="anchor" href="#add-the-new-query-to-the-reference-population"></a>
 </h2>
-<p>Population mode is the recommended prediction strategy when a
-reference query cohort is available.</p>
-<p>The new query is first projected into the frozen reference molecular
-space. It is then added to the corresponding reference query population,
-and uOT is rerun for that lineage.</p>
-<pre class="text"><code>reference queries
+<p>For a newly arriving single query, Tumor2Line does not match that
+sample in isolation. Instead, the new query is added to the existing
+reference query cohort, forming an updated query population.</p>
+<p>The complete Tumor2Line workflow is then rerun on the combined query
+population and candidate cell-line population.</p>
+<pre class="text"><code>reference query cohort
         +
 new query
+        ↓
+combined query population
         +
 candidate cell lines
-        -&gt;
+        ↓
+scaled PCA
+        ↓
 population-aware uOT
-        -&gt;
+        ↓
 new-query cell-line ranking</code></pre>
 <div class="section level3">
-<h3 id="predict-the-held-out-query">6.1 Predict the held-out query<a class="anchor" aria-label="anchor" href="#predict-the-held-out-query"></a>
+<h3 id="combine-the-new-query-with-the-reference-cohort">6.1 Combine the new query with the reference cohort<a class="anchor" aria-label="anchor" href="#combine-the-new-query-with-the-reference-cohort"></a>
 </h3>
 <div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">population_prediction</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/predict_tumor2line.html">predict_tumor2line</a></span><span class="op">(</span></span>
-<span>  reference <span class="op">=</span> <span class="va">reference</span>,</span>
-<span>  new_query_expr <span class="op">=</span> <span class="va">new_query_expr</span>,</span>
-<span>  new_query_metadata <span class="op">=</span> <span class="va">new_query_metadata</span>,</span>
-<span>  method <span class="op">=</span> <span class="st">"population"</span></span>
+<code class="sourceCode R"><span><span class="va">combined_query_expr</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">rbind</a></span><span class="op">(</span></span>
+<span>  <span class="va">reference_query_expr</span>,</span>
+<span>  <span class="va">new_query_expr</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">population_prediction</span></span>
-<span><span class="co">#&gt; Tumor2Line single-query prediction</span></span>
-<span><span class="co">#&gt;   Mode:            population</span></span>
-<span><span class="co">#&gt;   Query:           435261__313_R__ORIGINATOR</span></span>
-<span><span class="co">#&gt;   Lineage:         COAD</span></span>
-<span><span class="co">#&gt;   Candidates:      27</span></span></code></pre></div>
-<p>Only the relevant lineage needs to be recomputed. The reference gene
-set, gene scaling, PCA loadings and PC scaling remain fixed.</p>
+<span><span class="va">combined_query_ids</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">combined_query_expr</span><span class="op">$</span><span class="va">SampleID</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">combined_phenotype_model</span> <span class="op">&lt;-</span> <span class="va">phenotype</span><span class="op">[</span></span>
+<span>  <span class="va">phenotype</span><span class="op">$</span><span class="va">SampleID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">combined_query_ids</span>, <span class="va">cellline_ids</span><span class="op">)</span>, ,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span>
+<span></span>
+<span><span class="va">combined_phenotype_model</span> <span class="op">&lt;-</span> <span class="va">combined_phenotype_model</span><span class="op">[</span></span>
+<span>  ,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">setdiff</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">combined_phenotype_model</span><span class="op">)</span>, <span class="st">"PairID"</span><span class="op">)</span>,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">combined_query_expr</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1]   103 17939</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">combined_phenotype_model</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 217   9</span></span></code></pre></div>
+<p>The new query is now part of the query population. Its expression
+profile therefore contributes to the molecular representation and to the
+subsequent population-aware uOT matching.</p>
 </div>
 <div class="section level3">
-<h3 id="inspect-the-population-mode-ranking">6.2 Inspect the population-mode ranking<a class="anchor" aria-label="anchor" href="#inspect-the-population-mode-ranking"></a>
+<h3 id="rerun-tumor2line-on-the-combined-population">6.2 Rerun Tumor2Line on the combined population<a class="anchor" aria-label="anchor" href="#rerun-tumor2line-on-the-combined-population"></a>
 </h3>
 <div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">population_top5</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
-<span>  <span class="va">population_prediction</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span></span>
+<code class="sourceCode R"><span><span class="va">population_result</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_tumor2line.html">run_tumor2line</a></span><span class="op">(</span></span>
+<span>  query_expr <span class="op">=</span> <span class="va">combined_query_expr</span>,</span>
+<span>  cellline_expr <span class="op">=</span> <span class="va">cellline_expr</span>,</span>
+<span>  phenotype <span class="op">=</span> <span class="va">combined_phenotype_model</span>,</span>
+<span>  sample_id_col <span class="op">=</span> <span class="st">"SampleID"</span>,</span>
+<span>  pair_col <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  lineage_col <span class="op">=</span> <span class="st">"lineage"</span>,</span>
+<span>  sample_type_col <span class="op">=</span> <span class="st">"SampleClass"</span>,</span>
+<span>  query_type <span class="op">=</span> <span class="st">"tumor"</span>,</span>
+<span>  n_variable_genes <span class="op">=</span> <span class="fl">10000</span>,</span>
+<span>  pca_variance_threshold <span class="op">=</span> <span class="fl">0.90</span>,</span>
+<span>  max_pcs <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  candidate_scope <span class="op">=</span> <span class="st">"within_lineage"</span>,</span>
+<span>  distance <span class="op">=</span> <span class="st">"euclidean"</span>,</span>
+<span>  epsilon <span class="op">=</span> <span class="fl">0.1</span>,</span>
+<span>  rho_query <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  rho_cellline <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  evaluate <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">population_top5</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 17</span></span></span>
+<span><span class="va">population_result</span></span>
+<span><span class="co">#&gt; Tumor2Line result</span></span>
+<span><span class="co">#&gt;   Queries:         103</span></span>
+<span><span class="co">#&gt;   Cell lines:      114</span></span>
+<span><span class="co">#&gt;   Lineages:        6</span></span>
+<span><span class="co">#&gt;   Selected genes:  10000</span></span>
+<span><span class="co">#&gt;   Selected PCs:    104</span></span>
+<span><span class="co">#&gt;   PCA threshold:   0.9</span></span>
+<span><span class="co">#&gt;   Maximum PCs:     NULL (no user-defined limit)</span></span>
+<span><span class="co">#&gt;   Candidate scope: within_lineage</span></span>
+<span><span class="co">#&gt;   Ranking rows:    2095</span></span></code></pre></div>
+<p>This step reruns the complete Tumor2Line workflow after the new query
+has been incorporated into the population.</p>
+</div>
+<div class="section level3">
+<h3 id="extract-the-new-query-ranking">6.3 Extract the new-query ranking<a class="anchor" aria-label="anchor" href="#extract-the-new-query-ranking"></a>
+</h3>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">new_query_top5</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
+<span>  <span class="va">population_result</span>,</span>
+<span>  n <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>  query_id <span class="op">=</span> <span class="va">new_query_id</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">new_query_top5</span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 15</span></span></span>
 <span><span class="co">#&gt;   Method     lineage Query_ID    CellLine_ID transport_mass matching_probability</span></span>
 <span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Tumor2Line COAD    435261__31… 435261__31…        0.022<span style="text-decoration: underline;">3</span>                0.493 </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Tumor2Line COAD    435261__31… 884544__14…        0.004<span style="text-decoration: underline;">45</span>               0.098<span style="text-decoration: underline;">6</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Tumor2Line COAD    435261__31… 884544__14…        0.003<span style="text-decoration: underline;">14</span>               0.069<span style="text-decoration: underline;">4</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Tumor2Line COAD    435261__31… 175126__01…        0.002<span style="text-decoration: underline;">21</span>               0.049<span style="text-decoration: underline;">0</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Tumor2Line COAD    435261__31… 147771__06…        0.001<span style="text-decoration: underline;">87</span>               0.041<span style="text-decoration: underline;">3</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 11 more variables: query_total_mass &lt;dbl&gt;, cellline_total_mass &lt;dbl&gt;,</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Tumor2Line COAD    435261__31… 435261__31…       0.031<span style="text-decoration: underline;">6</span>                 0.808 </span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Tumor2Line COAD    435261__31… 884544__14…       0.001<span style="text-decoration: underline;">64</span>                0.041<span style="text-decoration: underline;">9</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Tumor2Line COAD    435261__31… 884544__14…       0.001<span style="text-decoration: underline;">17</span>                0.030<span style="text-decoration: underline;">0</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Tumor2Line COAD    435261__31… 175126__01…       0.000<span style="text-decoration: underline;">856</span>               0.021<span style="text-decoration: underline;">9</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Tumor2Line COAD    435261__31… 392184__16…       0.000<span style="text-decoration: underline;">494</span>               0.012<span style="text-decoration: underline;">6</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 9 more variables: query_total_mass &lt;dbl&gt;, cellline_total_mass &lt;dbl&gt;,</span></span></span>
 <span><span class="co">#&gt; <span style="color: #949494;">#   cost &lt;dbl&gt;, rank &lt;int&gt;, n_candidates &lt;int&gt;, candidate_scope &lt;chr&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   OT_converged &lt;lgl&gt;, OT_iterations &lt;int&gt;, OT_final_delta &lt;dbl&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   prediction_score &lt;dbl&gt;, prediction_mode &lt;chr&gt;</span></span></span></code></pre></div>
-<p>Because population mode reruns uOT, its ranking contains the full
-transport information:</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">population_prediction</span><span class="op">$</span><span class="va">ranking</span><span class="op">[</span>,</span>
+<span><span class="co">#&gt; <span style="color: #949494;">#   OT_converged &lt;lgl&gt;, OT_iterations &lt;int&gt;, OT_final_delta &lt;dbl&gt;</span></span></span></code></pre></div>
+<p>To inspect the full candidate ranking for the new query:</p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">new_query_ranking</span> <span class="op">&lt;-</span> <span class="va">population_result</span><span class="op">$</span><span class="va">ranking</span><span class="op">[</span></span>
+<span>  <span class="va">population_result</span><span class="op">$</span><span class="va">ranking</span><span class="op">$</span><span class="va">Query_ID</span> <span class="op">==</span> <span class="va">new_query_id</span>, ,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">]</span></span>
+<span></span>
+<span><span class="va">new_query_ranking</span><span class="op">[</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Query_ID"</span>,</span>
 <span>    <span class="st">"CellLine_ID"</span>,</span>
 <span>    <span class="st">"transport_mass"</span>,</span>
 <span>    <span class="st">"matching_probability"</span>,</span>
 <span>    <span class="st">"query_total_mass"</span>,</span>
+<span>    <span class="st">"cellline_total_mass"</span>,</span>
 <span>    <span class="st">"cost"</span>,</span>
 <span>    <span class="st">"rank"</span><span class="op">)</span><span class="op">]</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 10 × 7</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 10 × 8</span></span></span>
 <span><span class="co">#&gt;    Query_ID     CellLine_ID transport_mass matching_probability query_total_mass</span></span>
 <span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>        <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>            <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> 435261__313… 435261__31…       0.022<span style="text-decoration: underline;">3</span>                 0.493            0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> 435261__313… 884544__14…       0.004<span style="text-decoration: underline;">45</span>                0.098<span style="text-decoration: underline;">6</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> 435261__313… 884544__14…       0.003<span style="text-decoration: underline;">14</span>                0.069<span style="text-decoration: underline;">4</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> 435261__313… 175126__01…       0.002<span style="text-decoration: underline;">21</span>                0.049<span style="text-decoration: underline;">0</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> 435261__313… 147771__06…       0.001<span style="text-decoration: underline;">87</span>                0.041<span style="text-decoration: underline;">3</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> 435261__313… 825966__06…       0.001<span style="text-decoration: underline;">66</span>                0.036<span style="text-decoration: underline;">7</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> 435261__313… 255893__29…       0.001<span style="text-decoration: underline;">22</span>                0.026<span style="text-decoration: underline;">9</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> 435261__313… 784911__08…       0.000<span style="text-decoration: underline;">957</span>               0.021<span style="text-decoration: underline;">2</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> 435261__313… 381356__30…       0.000<span style="text-decoration: underline;">912</span>               0.020<span style="text-decoration: underline;">2</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> 435261__313… 814844__32…       0.000<span style="text-decoration: underline;">848</span>               0.018<span style="text-decoration: underline;">8</span>           0.045<span style="text-decoration: underline;">2</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 2 more variables: cost &lt;dbl&gt;, rank &lt;int&gt;</span></span></span></code></pre></div>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> 435261__313… 435261__31…       0.031<span style="text-decoration: underline;">6</span>                0.808             0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> 435261__313… 884544__14…       0.001<span style="text-decoration: underline;">64</span>               0.041<span style="text-decoration: underline;">9</span>            0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> 435261__313… 884544__14…       0.001<span style="text-decoration: underline;">17</span>               0.030<span style="text-decoration: underline;">0</span>            0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> 435261__313… 175126__01…       0.000<span style="text-decoration: underline;">856</span>              0.021<span style="text-decoration: underline;">9</span>            0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> 435261__313… 392184__16…       0.000<span style="text-decoration: underline;">494</span>              0.012<span style="text-decoration: underline;">6</span>            0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> 435261__313… 981439__25…       0.000<span style="text-decoration: underline;">415</span>              0.010<span style="text-decoration: underline;">6</span>            0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> 435261__313… 825966__06…       0.000<span style="text-decoration: underline;">363</span>              0.009<span style="text-decoration: underline;">26</span>           0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> 435261__313… 147771__06…       0.000<span style="text-decoration: underline;">362</span>              0.009<span style="text-decoration: underline;">25</span>           0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> 435261__313… 392184__16…       0.000<span style="text-decoration: underline;">291</span>              0.007<span style="text-decoration: underline;">43</span>           0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> 435261__313… 715222__19…       0.000<span style="text-decoration: underline;">183</span>              0.004<span style="text-decoration: underline;">67</span>           0.039<span style="text-decoration: underline;">1</span></span></span>
+<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 3 more variables: cellline_total_mass &lt;dbl&gt;, cost &lt;dbl&gt;, rank &lt;int&gt;</span></span></span></code></pre></div>
 <p>Here:</p>
 <ul>
 <li>
-<code>transport_mass</code> is the raw uOT mass for the new
+<code>transport_mass</code> is the raw uOT mass assigned to the new
 query-cell-line pair;</li>
 <li>
 <code>matching_probability</code> is the query-normalized transport
 mass;</li>
 <li>
-<code>rank = 1</code> is the highest-priority candidate.</li>
+<code>query_total_mass</code> is the total mass transported from the
+new query;</li>
+<li>
+<code>rank = 1</code> is the highest-priority candidate cell
+line.</li>
 </ul>
 </div>
 </div>
 <div class="section level2">
-<h2 id="single-query-prediction-transfer-mode">7. Single-query prediction: transfer mode<a class="anchor" aria-label="anchor" href="#single-query-prediction-transfer-mode"></a>
+<h2 id="evaluate-the-held-out-pdmr-pair">7. Evaluate the held-out PDMR pair<a class="anchor" aria-label="anchor" href="#evaluate-the-held-out-pdmr-pair"></a>
 </h2>
-<p>Transfer mode provides a faster approximate prediction when a
-reference Tumor2Line cohort has already been fitted.</p>
-<p>Instead of rerunning uOT, the new query is projected into the frozen
-reference scaled-PCA space and compared with reference queries from the
-same lineage.</p>
-<p>The default procedure uses the five closest reference queries.</p>
-<pre class="text"><code>new query
-        -&gt;
-frozen reference scaled-PCA space
-        -&gt;
-five most similar reference queries
-        -&gt;
-distance-based neighbor weights
-        -&gt;
-weighted combination of their existing
-Tumor2Line matching probabilities
-        -&gt;
-new-query transfer ranking</code></pre>
-<div class="section level3">
-<h3 id="run-transfer-prediction">7.1 Run transfer prediction<a class="anchor" aria-label="anchor" href="#run-transfer-prediction"></a>
-</h3>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">transfer_prediction</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/predict_tumor2line.html">predict_tumor2line</a></span><span class="op">(</span></span>
-<span>  reference <span class="op">=</span> <span class="va">reference</span>,</span>
-<span>  new_query_expr <span class="op">=</span> <span class="va">new_query_expr</span>,</span>
-<span>  new_query_metadata <span class="op">=</span> <span class="va">new_query_metadata</span>,</span>
-<span>  method <span class="op">=</span> <span class="st">"transfer"</span>,</span>
-<span>  k <span class="op">=</span> <span class="fl">5</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">transfer_prediction</span></span>
-<span><span class="co">#&gt; Tumor2Line single-query prediction</span></span>
-<span><span class="co">#&gt;   Mode:            transfer</span></span>
-<span><span class="co">#&gt;   Query:           435261__313_R__ORIGINATOR</span></span>
-<span><span class="co">#&gt;   Lineage:         COAD</span></span>
-<span><span class="co">#&gt;   Candidates:      27</span></span>
-<span><span class="co">#&gt;   Reference k:     5</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="inspect-similar-reference-queries">7.2 Inspect similar reference queries<a class="anchor" aria-label="anchor" href="#inspect-similar-reference-queries"></a>
-</h3>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">transfer_prediction</span><span class="op">$</span><span class="va">neighbors</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 6</span></span></span>
-<span><span class="co">#&gt;   Query_ID              Reference_Query_ID lineage distance weight neighbor_rank</span></span>
-<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                 <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>              <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>         <span style="color: #949494; font-style: italic;">&lt;int&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> 435261__313_R__ORIGI… 339189__122_R__OR… COAD       0.592  0.245             1</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> 435261__313_R__ORIGI… 784581__064_R__OR… COAD       0.665  0.218             2</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> 435261__313_R__ORIGI… 814844__326_R__OR… COAD       0.724  0.200             3</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> 435261__313_R__ORIGI… 381356__305_R__OR… COAD       0.837  0.173             4</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> 435261__313_R__ORIGI… 519858__162_T__OR… COAD       0.884  0.164             5</span></span></code></pre></div>
-<p>The neighbor table should contain information such as:</p>
-<ul>
-<li>
-<code>Reference_Query_ID</code>: reference query used for
-transfer;</li>
-<li>
-<code>distance</code>: molecular distance from the new query in the
-frozen scaled-PCA space;</li>
-<li>
-<code>weight</code>: normalized contribution of that reference query
-to the transfer prediction.</li>
-</ul>
-<p>The closest reference query receives the largest contribution.</p>
-</div>
-<div class="section level3">
-<h3 id="inspect-the-transferred-cell-line-ranking">7.3 Inspect the transferred cell-line ranking<a class="anchor" aria-label="anchor" href="#inspect-the-transferred-cell-line-ranking"></a>
-</h3>
-<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">transfer_top5</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
-<span>  <span class="va">transfer_prediction</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">transfer_top5</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 11</span></span></span>
-<span><span class="co">#&gt;   Method      lineage Query_ID CellLine_ID transfer_score prediction_score  rank</span></span>
-<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>            <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;int&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Tumor2Line… COAD    435261_… 381356__30…         0.112            0.112      1</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Tumor2Line… COAD    435261_… 784911__08…         0.103            0.103      2</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Tumor2Line… COAD    435261_… 814844__32…         0.077<span style="text-decoration: underline;">5</span>           0.077<span style="text-decoration: underline;">5</span>     3</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Tumor2Line… COAD    435261_… 435261__31…         0.073<span style="text-decoration: underline;">9</span>           0.073<span style="text-decoration: underline;">9</span>     4</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Tumor2Line… COAD    435261_… 825966__06…         0.058<span style="text-decoration: underline;">9</span>           0.058<span style="text-decoration: underline;">9</span>     5</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 4 more variables: n_candidates &lt;int&gt;, n_reference_neighbors &lt;int&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   candidate_scope &lt;chr&gt;, prediction_mode &lt;chr&gt;</span></span></span></code></pre></div>
-<p>Transfer mode does not generate a new uOT transport plan for the
-held-out query. Therefore, it does not have a new-query
-<code>transport_mass</code>.</p>
-<p>Instead, its main candidate score is the weighted transfer score:</p>
-<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">transfer_prediction</span><span class="op">$</span><span class="va">ranking</span><span class="op">[</span>,</span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Query_ID"</span>,</span>
-<span>    <span class="st">"CellLine_ID"</span>,</span>
-<span>    <span class="st">"transfer_score"</span>,</span>
-<span>    <span class="st">"prediction_score"</span>,</span>
-<span>    <span class="st">"rank"</span><span class="op">)</span><span class="op">]</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">10</span><span class="op">)</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 10 × 5</span></span></span>
-<span><span class="co">#&gt;    Query_ID                  CellLine_ID   transfer_score prediction_score  rank</span></span>
-<span><span class="co">#&gt;    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                     <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                  <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>            <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;int&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 1</span> 435261__313_R__ORIGINATOR 381356__305_…         0.112            0.112      1</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 2</span> 435261__313_R__ORIGINATOR 784911__089_…         0.103            0.103      2</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 3</span> 435261__313_R__ORIGINATOR 814844__326_…         0.077<span style="text-decoration: underline;">5</span>           0.077<span style="text-decoration: underline;">5</span>     3</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 4</span> 435261__313_R__ORIGINATOR 435261__313_…         0.073<span style="text-decoration: underline;">9</span>           0.073<span style="text-decoration: underline;">9</span>     4</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 5</span> 435261__313_R__ORIGINATOR 825966__067_…         0.058<span style="text-decoration: underline;">9</span>           0.058<span style="text-decoration: underline;">9</span>     5</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 6</span> 435261__313_R__ORIGINATOR 147771__066_…         0.055<span style="text-decoration: underline;">2</span>           0.055<span style="text-decoration: underline;">2</span>     6</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 7</span> 435261__313_R__ORIGINATOR 981439__253_…         0.047<span style="text-decoration: underline;">9</span>           0.047<span style="text-decoration: underline;">9</span>     7</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 8</span> 435261__313_R__ORIGINATOR 884544__143_…         0.045<span style="text-decoration: underline;">7</span>           0.045<span style="text-decoration: underline;">7</span>     8</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;"> 9</span> 435261__313_R__ORIGINATOR 175126__011_…         0.045<span style="text-decoration: underline;">7</span>           0.045<span style="text-decoration: underline;">7</span>     9</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">10</span> 435261__313_R__ORIGINATOR 817829__284_…         0.043<span style="text-decoration: underline;">7</span>           0.043<span style="text-decoration: underline;">7</span>    10</span></span></code></pre></div>
-<p><code>transfer_score</code> summarizes the existing Tumor2Line
-matching probabilities of the selected reference queries after weighting
-them according to molecular similarity.</p>
-<p>Setting <code>k = 1</code> reduces transfer mode to the simplest
-strategy: identify the single most similar reference query and inherit
-its candidate cell-line ranking.</p>
-</div>
-</div>
-<div class="section level2">
-<h2 id="compare-the-two-prediction-modes">8. Compare the two prediction modes<a class="anchor" aria-label="anchor" href="#compare-the-two-prediction-modes"></a>
-</h2>
-<p>The two approaches answer the same practical question but use
-different computational strategies.</p>
-<div class="section level3">
-<h3 id="top-candidate-cell-lines">8.1 Top candidate cell lines<a class="anchor" aria-label="anchor" href="#top-candidate-cell-lines"></a>
-</h3>
-<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">population_top5</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 17</span></span></span>
-<span><span class="co">#&gt;   Method     lineage Query_ID    CellLine_ID transport_mass matching_probability</span></span>
-<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>      <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Tumor2Line COAD    435261__31… 435261__31…        0.022<span style="text-decoration: underline;">3</span>                0.493 </span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Tumor2Line COAD    435261__31… 884544__14…        0.004<span style="text-decoration: underline;">45</span>               0.098<span style="text-decoration: underline;">6</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Tumor2Line COAD    435261__31… 884544__14…        0.003<span style="text-decoration: underline;">14</span>               0.069<span style="text-decoration: underline;">4</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Tumor2Line COAD    435261__31… 175126__01…        0.002<span style="text-decoration: underline;">21</span>               0.049<span style="text-decoration: underline;">0</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Tumor2Line COAD    435261__31… 147771__06…        0.001<span style="text-decoration: underline;">87</span>               0.041<span style="text-decoration: underline;">3</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 11 more variables: query_total_mass &lt;dbl&gt;, cellline_total_mass &lt;dbl&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   cost &lt;dbl&gt;, rank &lt;int&gt;, n_candidates &lt;int&gt;, candidate_scope &lt;chr&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   OT_converged &lt;lgl&gt;, OT_iterations &lt;int&gt;, OT_final_delta &lt;dbl&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   prediction_score &lt;dbl&gt;, prediction_mode &lt;chr&gt;</span></span></span>
-<span><span class="va">transfer_top5</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 5 × 11</span></span></span>
-<span><span class="co">#&gt;   Method      lineage Query_ID CellLine_ID transfer_score prediction_score  rank</span></span>
-<span><span class="co">#&gt;   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>       <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>                <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>            <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;int&gt;</span></span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">1</span> Tumor2Line… COAD    435261_… 381356__30…         0.112            0.112      1</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">2</span> Tumor2Line… COAD    435261_… 784911__08…         0.103            0.103      2</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">3</span> Tumor2Line… COAD    435261_… 814844__32…         0.077<span style="text-decoration: underline;">5</span>           0.077<span style="text-decoration: underline;">5</span>     3</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">4</span> Tumor2Line… COAD    435261_… 435261__31…         0.073<span style="text-decoration: underline;">9</span>           0.073<span style="text-decoration: underline;">9</span>     4</span></span>
-<span><span class="co">#&gt; <span style="color: #BCBCBC;">5</span> Tumor2Line… COAD    435261_… 825966__06…         0.058<span style="text-decoration: underline;">9</span>           0.058<span style="text-decoration: underline;">9</span>     5</span></span>
-<span><span class="co">#&gt; <span style="color: #949494;"># ℹ 4 more variables: n_candidates &lt;int&gt;, n_reference_neighbors &lt;int&gt;,</span></span></span>
-<span><span class="co">#&gt; <span style="color: #949494;">#   candidate_scope &lt;chr&gt;, prediction_mode &lt;chr&gt;</span></span></span></code></pre></div>
-<p>Population mode performs a new population-aware optimization.
-Transfer mode approximates the prediction using previously computed
-reference results.</p>
-</div>
-<div class="section level3">
-<h3 id="evaluate-the-held-out-pdmr-pair">8.2 Evaluate the held-out PDMR pair<a class="anchor" aria-label="anchor" href="#evaluate-the-held-out-pdmr-pair"></a>
-</h3>
 <p>Because the selected PDMR query has known pairing information, we can
-now reveal the held-out ground truth and locate the true paired cell
-line in each prediction.</p>
-<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">summarize_heldout_prediction</span> <span class="op">&lt;-</span> <span class="kw">function</span><span class="op">(</span><span class="va">prediction</span>, <span class="va">true_cellline_ids</span>, <span class="va">mode</span><span class="op">)</span> <span class="op">{</span></span>
+now reveal the held-out ground truth and locate the known paired cell
+line in the new query’s ranking.</p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">true_rows</span> <span class="op">&lt;-</span> <span class="va">new_query_ranking</span><span class="op">[</span></span>
+<span>  <span class="va">new_query_ranking</span><span class="op">$</span><span class="va">CellLine_ID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">true_cellline_ids</span>, ,</span>
+<span>  drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
 <span></span>
-<span>  <span class="va">ranking</span> <span class="op">&lt;-</span> <span class="va">prediction</span><span class="op">$</span><span class="va">ranking</span></span>
-<span></span>
-<span>  <span class="va">true_rows</span> <span class="op">&lt;-</span> <span class="va">ranking</span><span class="op">[</span></span>
-<span>    <span class="va">ranking</span><span class="op">$</span><span class="va">CellLine_ID</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">true_cellline_ids</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
-<span></span>
-<span>  <span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">true_rows</span><span class="op">)</span> <span class="op">==</span> <span class="fl">0</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="kw"><a href="https://rdrr.io/r/base/function.html" class="external-link">return</a></span><span class="op">(</span></span>
-<span>      <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
-<span>        Mode <span class="op">=</span> <span class="va">mode</span>,</span>
-<span>        Top_candidate <span class="op">=</span> <span class="cn">NA_character_</span>,</span>
-<span>        True_CellLine_ID <span class="op">=</span> <span class="cn">NA_character_</span>,</span>
-<span>        True_pair_rank <span class="op">=</span> <span class="cn">NA_integer_</span>,</span>
-<span>        Top1 <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>        Top3 <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>        Reciprocal_rank <span class="op">=</span> <span class="cn">NA_real_</span>,</span>
-<span>        stringsAsFactors <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="op">}</span></span>
-<span></span>
+<span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">true_rows</span><span class="op">)</span> <span class="op">==</span> <span class="fl">0</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">single_query_evaluation</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>    Query_ID <span class="op">=</span> <span class="va">new_query_id</span>,</span>
+<span>    Top_candidate <span class="op">=</span> <span class="va">new_query_top5</span><span class="op">$</span><span class="va">CellLine_ID</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
+<span>    True_CellLine_ID <span class="op">=</span> <span class="cn">NA_character_</span>,</span>
+<span>    True_pair_rank <span class="op">=</span> <span class="cn">NA_integer_</span>,</span>
+<span>    Top1 <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    Top3 <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    Reciprocal_rank <span class="op">=</span> <span class="cn">NA_real_</span>,</span>
+<span>    stringsAsFactors <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span> <span class="kw">else</span> <span class="op">{</span></span>
 <span>  <span class="va">true_row</span> <span class="op">&lt;-</span> <span class="va">true_rows</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/which.min.html" class="external-link">which.min</a></span><span class="op">(</span><span class="va">true_rows</span><span class="op">$</span><span class="va">rank</span><span class="op">)</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
-<span>  <span class="va">top_row</span> <span class="op">&lt;-</span> <span class="va">ranking</span><span class="op">[</span><span class="va">ranking</span><span class="op">$</span><span class="va">rank</span> <span class="op">==</span> <span class="fl">1L</span>, , drop <span class="op">=</span> <span class="cn">FALSE</span><span class="op">]</span></span>
 <span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
-<span>    Mode <span class="op">=</span> <span class="va">mode</span>,</span>
-<span>    Top_candidate <span class="op">=</span> <span class="va">top_row</span><span class="op">$</span><span class="va">CellLine_ID</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
+<span>  <span class="va">single_query_evaluation</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span></span>
+<span>    Query_ID <span class="op">=</span> <span class="va">new_query_id</span>,</span>
+<span>    Top_candidate <span class="op">=</span> <span class="va">new_query_top5</span><span class="op">$</span><span class="va">CellLine_ID</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
 <span>    True_CellLine_ID <span class="op">=</span> <span class="va">true_row</span><span class="op">$</span><span class="va">CellLine_ID</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
 <span>    True_pair_rank <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/integer.html" class="external-link">as.integer</a></span><span class="op">(</span><span class="va">true_row</span><span class="op">$</span><span class="va">rank</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span><span class="op">)</span>,</span>
 <span>    Top1 <span class="op">=</span> <span class="va">true_row</span><span class="op">$</span><span class="va">rank</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span> <span class="op">&lt;=</span> <span class="fl">1</span>,</span>
@@ -724,32 +635,13 @@ line in each prediction.</p>
 <span>    Reciprocal_rank <span class="op">=</span> <span class="fl">1</span> <span class="op">/</span> <span class="va">true_row</span><span class="op">$</span><span class="va">rank</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span>,</span>
 <span>    stringsAsFactors <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span>  <span class="op">)</span></span>
-<span><span class="op">}</span></span></code></pre></div>
-<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">population_evaluation</span> <span class="op">&lt;-</span> <span class="fu">summarize_heldout_prediction</span><span class="op">(</span></span>
-<span>  <span class="va">population_prediction</span>,</span>
-<span>  <span class="va">true_cellline_ids</span>,</span>
-<span>  <span class="st">"Population"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">transfer_evaluation</span> <span class="op">&lt;-</span> <span class="fu">summarize_heldout_prediction</span><span class="op">(</span></span>
-<span>  <span class="va">transfer_prediction</span>,</span>
-<span>  <span class="va">true_cellline_ids</span>,</span>
-<span>  <span class="st">"Transfer"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">single_query_evaluation</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">rbind</a></span><span class="op">(</span></span>
-<span>  <span class="va">population_evaluation</span>,</span>
-<span>  <span class="va">transfer_evaluation</span></span>
-<span><span class="op">)</span></span>
+<span><span class="op">}</span></span>
 <span></span>
 <span><span class="va">single_query_evaluation</span></span>
-<span><span class="co">#&gt;         Mode         Top_candidate      True_CellLine_ID True_pair_rank  Top1</span></span>
-<span><span class="co">#&gt; 1 Population 435261__313_R__J1_PDC 435261__313_R__J1_PDC              1  TRUE</span></span>
-<span><span class="co">#&gt; 2   Transfer 381356__305_R__J1_PDC 435261__313_R__J1_PDC              4 FALSE</span></span>
-<span><span class="co">#&gt;    Top3 Reciprocal_rank</span></span>
-<span><span class="co">#&gt; 1  TRUE            1.00</span></span>
-<span><span class="co">#&gt; 2 FALSE            0.25</span></span></code></pre></div>
+<span><span class="co">#&gt;                    Query_ID         Top_candidate      True_CellLine_ID</span></span>
+<span><span class="co">#&gt; 1 435261__313_R__ORIGINATOR 435261__313_R__J1_PDC 435261__313_R__J1_PDC</span></span>
+<span><span class="co">#&gt;   True_pair_rank Top1 Top3 Reciprocal_rank</span></span>
+<span><span class="co">#&gt; 1              1 TRUE TRUE               1</span></span></code></pre></div>
 <p>For a single held-out query, the most useful quantities are:</p>
 <ul>
 <li>
@@ -765,90 +657,63 @@ three candidates;</li>
 </ul>
 <p>These are sample-level outcomes rather than cohort-level accuracy
 estimates.</p>
-</div>
-<div class="section level3">
-<h3 id="interpretation">8.3 Interpretation<a class="anchor" aria-label="anchor" href="#interpretation"></a>
-</h3>
-<p>A favorable population-mode result indicates that the held-out query
-was successfully integrated into the reference population and that
-population-level competition among candidate cell lines prioritized the
-known PDMR pair.</p>
-<p>A favorable transfer-mode result indicates that transcriptomically
-similar reference queries already carried useful Tumor2Line ranking
-information that could be transferred to the new query.</p>
 <p>The single held-out example is intended to demonstrate package usage.
-It should not be interpreted as a formal comparison of population and
-transfer prediction performance.</p>
-<p>A formal comparison would require repeating the held-out procedure
-across many or all PDMR queries.</p>
-</div>
+A formal performance assessment would require repeating the held-out
+procedure across many or all PDMR queries.</p>
 </div>
 <div class="section level2">
-<h2 id="which-prediction-mode-should-i-use">9. Which prediction mode should I use?<a class="anchor" aria-label="anchor" href="#which-prediction-mode-should-i-use"></a>
+<h2 id="why-population-context-matters">8. Why population context matters<a class="anchor" aria-label="anchor" href="#why-population-context-matters"></a>
 </h2>
-<p>A practical decision framework is:</p>
-<pre class="text"><code>Do you have a reference query cohort?
-
-        YES
-         |
-         |-- Need the full population-aware prediction?
-         |       |
-         |       `-- Population mode
-         |           Recommended
-         |
-         `-- Need a fast approximate prediction?
-                 |
-                 `-- Transfer mode
-                     k = 5 by default
-
-        NO
-         |
-         `-- Query-side population context is unavailable
-             Use pairwise query-cell-line similarity
-             This is not the full population-aware Tumor2Line workflow</code></pre>
-<div class="section level3">
-<h3 id="population-mode">9.1 Population mode<a class="anchor" aria-label="anchor" href="#population-mode"></a>
-</h3>
-<p>Use population mode when:</p>
+<p>Tumor2Line is designed to match query and cell-line populations
+jointly rather than scoring each query-cell-line pair independently.</p>
+<p>When a new tumor is analyzed, it is therefore added to the existing
+reference query cohort before Tumor2Line is rerun.</p>
+<pre class="text"><code>single new query
+        +
+reference query cohort
+        ↓
+updated query population
+        ↓
+joint molecular representation
+        ↓
+population-aware uOT
+        ↓
+candidate cell-line ranking</code></pre>
+<p>This preserves the central population-level design of Tumor2Line. The
+candidate ranking for the new query is obtained in the context of the
+other query samples and the candidate cell-line population.</p>
+</div>
+<div class="section level2">
+<h2 id="when-should-i-use-this-workflow">9. When should I use this workflow?<a class="anchor" aria-label="anchor" href="#when-should-i-use-this-workflow"></a>
+</h2>
+<p>Use this single-query workflow when:</p>
 <ul>
-<li>a representative reference query cohort is available;</li>
-<li>the full Tumor2Line population-aware formulation is desired;</li>
-<li>rerunning lineage-specific uOT is computationally acceptable.</li>
+<li>one new tumor, PDO, PDX, organoid, or other query sample needs
+candidate cell-line selection;</li>
+<li>an existing reference query cohort is available;</li>
+<li>the new query can be combined with that reference cohort using
+compatible expression measurements;</li>
+<li>population-aware Tumor2Line matching is desired.</li>
 </ul>
-</div>
-<div class="section level3">
-<h3 id="transfer-mode">9.2 Transfer mode<a class="anchor" aria-label="anchor" href="#transfer-mode"></a>
-</h3>
-<p>Use transfer mode when:</p>
-<ul>
-<li>a fitted Tumor2Line reference already exists;</li>
-<li>rapid prediction is important;</li>
-<li>an approximate result based on molecularly similar reference queries
-is appropriate.</li>
-</ul>
-<p>The default <code>k = 5</code> combines information from multiple
-similar reference queries and is generally more stable than transferring
-the ranking from only one reference sample.</p>
-</div>
-<div class="section level3">
-<h3 id="no-reference-cohort">9.3 No reference cohort<a class="anchor" aria-label="anchor" href="#no-reference-cohort"></a>
-</h3>
-<p>A single query without a reference query cohort has no query-side
-population context.</p>
-<p>In this setting, query-cell-line similarity can still be computed,
-but the analysis should not be described as the full population-aware
-Tumor2Line workflow.</p>
-</div>
+<p>The recommended procedure is:</p>
+<pre class="text"><code>new query
+        +
+reference query cohort
+        ↓
+rerun Tumor2Line
+        ↓
+extract new-query candidate ranking</code></pre>
+<p>If no reference query cohort is available, the new sample lacks
+query-side population context. In that setting, a pairwise
+query-cell-line similarity analysis may still be possible, but it is not
+the full population-aware Tumor2Line workflow.</p>
 </div>
 <div class="section level2">
 <h2 id="standard-cohort-analysis">10. Standard cohort analysis<a class="anchor" aria-label="anchor" href="#standard-cohort-analysis"></a>
 </h2>
-<p>The single-query workflow is built on the same core Tumor2Line
-algorithm used for standard cohort analysis.</p>
-<p>When multiple query samples are available simultaneously, users can
-run the complete population directly with
-<code><a href="../reference/run_tumor2line.html">run_tumor2line()</a></code>.</p>
-<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
+<p>The same <code><a href="../reference/run_tumor2line.html">run_tumor2line()</a></code> function is used when multiple
+query samples are analyzed simultaneously.</p>
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cohort_result</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_tumor2line.html">run_tumor2line</a></span><span class="op">(</span></span>
 <span>  query_expr <span class="op">=</span> <span class="va">query_expr</span>,</span>
 <span>  cellline_expr <span class="op">=</span> <span class="va">cellline_expr</span>,</span>
@@ -888,7 +753,7 @@ run the complete population directly with
 <div class="section level3">
 <h3 id="candidate-rankings">10.1 Candidate rankings<a class="anchor" aria-label="anchor" href="#candidate-rankings"></a>
 </h3>
-<div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">cohort_result</span><span class="op">$</span><span class="va">ranking</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 6 × 15</span></span></span>
 <span><span class="co">#&gt;   Method     lineage Query_ID    CellLine_ID transport_mass matching_probability</span></span>
@@ -934,10 +799,11 @@ candidate cell line;</li>
 <div class="section level3">
 <h3 id="top-candidates">10.2 Top candidates<a class="anchor" aria-label="anchor" href="#top-candidates"></a>
 </h3>
-<div class="sourceCode" id="cb30"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cohort_top5</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
 <span>  <span class="va">cohort_result</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span>
+<span>  n <span class="op">=</span> <span class="fl">5</span></span>
+<span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">utils</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">cohort_top5</span>, <span class="fl">10</span><span class="op">)</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 10 × 15</span></span></span>
@@ -962,7 +828,7 @@ candidate cell line;</li>
 </h3>
 <p>Because the PDMR example contains known pairs, cohort-level
 performance can be summarized automatically:</p>
-<div class="sourceCode" id="cb31"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">cohort_result</span><span class="op">$</span><span class="va">evaluation</span><span class="op">$</span><span class="va">summary</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 1 × 6</span></span></span>
 <span><span class="co">#&gt;   n_query Top1_accuracy Top3_accuracy   MRR median_true_rank mean_true_rank</span></span>
@@ -989,39 +855,30 @@ supplied.</p>
 <div class="section level3">
 <h3 id="cohort-level-top1-top3-and-mrr">11.1 Cohort-level Top1, Top3 and MRR<a class="anchor" aria-label="anchor" href="#cohort-level-top1-top3-and-mrr"></a>
 </h3>
-<div class="sourceCode" id="cb32"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb27"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/plot_tumor2line_accuracy.html">plot_tumor2line_accuracy</a></span><span class="op">(</span><span class="va">cohort_result</span><span class="op">)</span></span></code></pre></div>
-<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-accuracy-1.png" width="480"></p>
+<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-accuracy-1.png" alt="Bar chart showing Top1 accuracy, Top3 accuracy, and mean reciprocal rank for Tumor2Line matching." width="480"></p>
 </div>
 <div class="section level3">
 <h3 id="true-pair-rank-distribution">11.2 True-pair rank distribution<a class="anchor" aria-label="anchor" href="#true-pair-rank-distribution"></a>
 </h3>
-<div class="sourceCode" id="cb33"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/plot_true_pair_ranks.html">plot_true_pair_ranks</a></span><span class="op">(</span><span class="va">cohort_result</span><span class="op">)</span></span></code></pre></div>
-<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-rank-1.png" width="480"></p>
+<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-rank-1.png" alt="Distribution of the ranks of known paired cell lines across query samples. Lower ranks indicate better matching." width="480"></p>
 <p>Lower true-pair ranks indicate better recovery. Rank 1 means
 Tumor2Line selected the known paired cell line as its first
 recommendation.</p>
 </div>
 <div class="section level3">
-<h3 id="population-mode-candidates-for-the-held-out-query">11.3 Population-mode candidates for the held-out query<a class="anchor" aria-label="anchor" href="#population-mode-candidates-for-the-held-out-query"></a>
+<h3 id="candidate-cell-lines-for-the-held-out-query">11.3 Candidate cell lines for the held-out query<a class="anchor" aria-label="anchor" href="#candidate-cell-lines-for-the-held-out-query"></a>
 </h3>
-<div class="sourceCode" id="cb34"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/plot_top_matches.html">plot_top_matches</a></span><span class="op">(</span></span>
-<span>  <span class="va">population_prediction</span>,</span>
+<span>  <span class="va">population_result</span>,</span>
 <span>  query_id <span class="op">=</span> <span class="va">new_query_id</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></code></pre></div>
-<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-population-top-1.png" width="480"></p>
-</div>
-<div class="section level3">
-<h3 id="transfer-mode-candidates-for-the-held-out-query">11.4 Transfer-mode candidates for the held-out query<a class="anchor" aria-label="anchor" href="#transfer-mode-candidates-for-the-held-out-query"></a>
-</h3>
-<div class="sourceCode" id="cb35"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/plot_top_matches.html">plot_top_matches</a></span><span class="op">(</span></span>
-<span>  <span class="va">transfer_prediction</span>,</span>
-<span>  query_id <span class="op">=</span> <span class="va">new_query_id</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></code></pre></div>
-<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-transfer-top-1.png" width="480"></p>
+<span>  n <span class="op">=</span> <span class="fl">5</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p><img src="Tumor2Line-single-query-prediction_files/figure-html/fig-population-top-1.png" alt="Top five candidate cell lines for the held-out query after it is added to the reference query cohort and Tumor2Line is rerun." width="480"></p>
 </div>
 </div>
 <div class="section level2">
@@ -1031,7 +888,7 @@ recommendation.</p>
 <h3 id="standard-query-cohort">12.1 Standard query cohort<a class="anchor" aria-label="anchor" href="#standard-query-cohort"></a>
 </h3>
 <p>For a new dataset containing multiple query samples:</p>
-<div class="sourceCode" id="cb36"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb30"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">query_expr</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/utils/read.table.html" class="external-link">read.delim</a></span><span class="op">(</span></span>
 <span>  <span class="st">"query_gene_expression.tsv"</span>,</span>
 <span>  check.names <span class="op">=</span> <span class="cn">FALSE</span></span>
@@ -1065,110 +922,82 @@ recommendation.</p>
 other tumor-derived samples.</p>
 </div>
 <div class="section level3">
-<h3 id="build-a-reusable-reference">12.2 Build a reusable reference<a class="anchor" aria-label="anchor" href="#build-a-reusable-reference"></a>
+<h3 id="add-one-new-query-to-an-existing-reference-cohort">12.2 Add one new query to an existing reference cohort<a class="anchor" aria-label="anchor" href="#add-one-new-query-to-an-existing-reference-cohort"></a>
 </h3>
-<p>If future single-query predictions are expected:</p>
-<div class="sourceCode" id="cb37"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">reference</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/fit_tumor2line_reference.html">fit_tumor2line_reference</a></span><span class="op">(</span></span>
-<span>  query_expr <span class="op">=</span> <span class="va">query_expr</span>,</span>
+<p>Assume <code>reference_query_expr</code> contains the existing
+reference query population and <code>new_query_expr</code> contains one
+newly arriving query.</p>
+<div class="sourceCode" id="cb31"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">combined_query_expr</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">rbind</a></span><span class="op">(</span></span>
+<span>  <span class="va">reference_query_expr</span>,</span>
+<span>  <span class="va">new_query_expr</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>The metadata for the new query should be added to the metadata for
+the existing reference cohort and candidate cell lines:</p>
+<div class="sourceCode" id="cb32"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">combined_phenotype</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">rbind</a></span><span class="op">(</span></span>
+<span>  <span class="va">reference_query_metadata</span>,</span>
+<span>  <span class="va">new_query_metadata</span>,</span>
+<span>  <span class="va">cellline_metadata</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>Then rerun Tumor2Line on the combined query population:</p>
+<div class="sourceCode" id="cb33"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/run_tumor2line.html">run_tumor2line</a></span><span class="op">(</span></span>
+<span>  query_expr <span class="op">=</span> <span class="va">combined_query_expr</span>,</span>
 <span>  cellline_expr <span class="op">=</span> <span class="va">cellline_expr</span>,</span>
-<span>  phenotype <span class="op">=</span> <span class="va">phenotype</span>,</span>
+<span>  phenotype <span class="op">=</span> <span class="va">combined_phenotype</span>,</span>
 <span>  sample_id_col <span class="op">=</span> <span class="st">"SampleID"</span>,</span>
 <span>  pair_col <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  lineage_col <span class="op">=</span> <span class="st">"lineage"</span>,</span>
 <span>  candidate_scope <span class="op">=</span> <span class="st">"within_lineage"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span></span>
-<span>  <span class="va">reference</span>,</span>
-<span>  <span class="st">"Tumor2Line_reference.rds"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
-<p>The fitted reference can then be reused without refitting the
-molecular representation for every new query.</p>
-</div>
-<div class="section level3">
-<h3 id="predict-a-new-query-using-population-mode">12.3 Predict a new query using population mode<a class="anchor" aria-label="anchor" href="#predict-a-new-query-using-population-mode"></a>
-</h3>
-<div class="sourceCode" id="cb38"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">reference</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">readRDS</a></span><span class="op">(</span></span>
-<span>  <span class="st">"Tumor2Line_reference.rds"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">population_prediction</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/predict_tumor2line.html">predict_tumor2line</a></span><span class="op">(</span></span>
-<span>  reference <span class="op">=</span> <span class="va">reference</span>,</span>
-<span>  new_query_expr <span class="op">=</span> <span class="va">new_query_expr</span>,</span>
-<span>  new_query_metadata <span class="op">=</span> <span class="va">new_query_metadata</span>,</span>
-<span>  method <span class="op">=</span> <span class="st">"population"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
-<span>  <span class="va">population_prediction</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span></span>
+<p>Finally, extract the candidate cell lines for the new query:</p>
+<div class="sourceCode" id="cb34"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
+<span>  <span class="va">result</span>,</span>
+<span>  n <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>  query_id <span class="op">=</span> <span class="va">new_query_id</span></span>
 <span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="predict-a-new-query-using-transfer-mode">12.4 Predict a new query using transfer mode<a class="anchor" aria-label="anchor" href="#predict-a-new-query-using-transfer-mode"></a>
-</h3>
-<div class="sourceCode" id="cb39"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">transfer_prediction</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/predict_tumor2line.html">predict_tumor2line</a></span><span class="op">(</span></span>
-<span>  reference <span class="op">=</span> <span class="va">reference</span>,</span>
-<span>  new_query_expr <span class="op">=</span> <span class="va">new_query_expr</span>,</span>
-<span>  new_query_metadata <span class="op">=</span> <span class="va">new_query_metadata</span>,</span>
-<span>  method <span class="op">=</span> <span class="st">"transfer"</span>,</span>
-<span>  k <span class="op">=</span> <span class="fl">5</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">transfer_prediction</span><span class="op">$</span><span class="va">neighbors</span></span>
-<span></span>
-<span><span class="fu"><a href="../reference/get_top_matches.html">get_top_matches</a></span><span class="op">(</span></span>
-<span>  <span class="va">transfer_prediction</span>,</span>
-<span>  n <span class="op">=</span> <span class="fl">5</span></span>
-<span><span class="op">)</span></span></code></pre></div>
+<p>This is the recommended Tumor2Line workflow for a single newly
+arriving query when a reference query cohort is available.</p>
 </div>
 </div>
 <div class="section level2">
 <h2 id="summary">13. Summary<a class="anchor" aria-label="anchor" href="#summary"></a>
 </h2>
-<p>Tumor2Line supports two complementary analysis settings.</p>
-<p>For a full query cohort:</p>
+<p>Tumor2Line is fundamentally a population-aware matching
+framework.</p>
+<p>For a standard query cohort:</p>
 <pre class="text"><code>query population
         +
 candidate cell-line population
-        -&gt;
+        ↓
 scaled PCA
-        -&gt;
+        ↓
 population-aware uOT
-        -&gt;
-query-specific cell-line ranking</code></pre>
-<p>For a newly arriving query with an existing reference cohort:</p>
-<pre class="text"><code>                           new query
-                               |
-                    reference PCA projection
-                               |
-                +--------------+--------------+
-                |                             |
-                v                             v
-        Population mode                 Transfer mode
-                |                             |
-      reference queries + new          similar reference
-                |                       queries, k = 5
-                v                             |
-               uOT                            v
-                |                      weighted transfer
-                v                             |
-         candidate ranking                    v
-                                        candidate ranking</code></pre>
-<p>Population mode is the recommended strategy when full
-population-aware prediction is desired. Transfer mode provides a fast
-approximation based on molecularly similar reference queries.</p>
+        ↓
+query-specific cell-line rankings</code></pre>
+<p>For one newly arriving query:</p>
+<pre class="text"><code>reference query cohort
+        +
+new query
+        ↓
+updated query population
+        +
+candidate cell-line population
+        ↓
+rerun Tumor2Line
+        ↓
+new-query candidate cell-line ranking</code></pre>
+<p>The new query is therefore analyzed as part of a query population
+rather than as an isolated sample.</p>
 <p>Known query-cell-line pairing information is never required for
-prediction and is used only when ground-truth evaluation is
-available.</p>
+matching and is used only when ground-truth evaluation is available.</p>
 </div>
 <div class="section level2">
 <h2 id="session-information">14. Session information<a class="anchor" aria-label="anchor" href="#session-information"></a>
 </h2>
-<div class="sourceCode" id="cb42"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb37"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; R version 4.4.3 (2025-02-28)</span></span>
 <span><span class="co">#&gt; Platform: aarch64-apple-darwin20</span></span>

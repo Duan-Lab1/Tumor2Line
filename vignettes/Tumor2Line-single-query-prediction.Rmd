@@ -25,20 +25,24 @@ knitr::opts_chunk$set(
 
 **Tumor2Line** matches a query population to candidate cancer cell lines using transcriptomic similarity at the **population level**. Query samples may represent patient tumors, PDOs, PDXs, organoids, or other tumor-derived models.
 
-```{r, echo=FALSE, out.width="80%", out.height="80%", dpi=600, fig.align="center", fig.cap="The Overview of Tumor2Line"}
+```{r, echo=FALSE, out.width="80%", out.height="80%", dpi=600, fig.align="center", fig.cap="The Overview of Tumor2Line", fig.alt="Overview of the Tumor2Line workflow for population-aware matching between query samples and candidate cancer cell lines."}
 knitr::include_graphics("./figures/workflow.jpg")
 ```
 
 The standard Tumor2Line workflow constructs a shared molecular representation using scaled PCA and performs population-aware matching with unbalanced optimal transport (uOT).
 
-In many practical applications, however, a user may already have an established reference query cohort and later receive a single new query sample. Tumor2Line therefore supports two conceptually different single-query prediction strategies:
+In many practical applications, a user may already have an established reference query cohort and later receive a single new query sample. Because Tumor2Line is designed as a population-level matching framework, the recommended strategy is to add the new query to the existing reference query cohort and rerun Tumor2Line on the combined query population.
 
-1. **Population mode**: project the new query into the frozen reference molecular space, add it to the reference query population, and rerun population-aware uOT matching;
-2. **Transfer mode**: project the new query into the same reference molecular space, identify the most similar reference queries, and transfer their existing Tumor2Line cell-line rankings to the new query.
+This tutorial demonstrates that workflow using the bundled PDMR-format example dataset:
 
-Population mode retains the full population-aware matching framework and is the recommended strategy when a reference query cohort is available. Transfer mode provides a faster approximate prediction strategy and uses `k = 5` similar reference queries by default.
+1. hold out one PDMR tumor and treat it as a newly arriving query;
+2. use the remaining tumors as the reference query cohort;
+3. add the held-out tumor back to the reference cohort;
+4. rerun the complete Tumor2Line workflow on the combined query population;
+5. extract the candidate cell-line ranking for the new query;
+6. use the known PDMR pair only at the end to evaluate the prediction.
 
-This tutorial uses the bundled PDMR-format example dataset. One PDMR tumor is held out and treated as a newly arriving query sample. The remaining tumors form the reference query cohort. The known PDMR pairing information is retained only for final evaluation and is not used to construct either prediction.
+The held-out PDMR pairing information is not used during Tumor2Line matching.
 
 ## 2. Load Tumor2Line
 
@@ -97,15 +101,13 @@ The first column of each expression table is `SampleID`.
 
 ## 4. Create a held-out new query
 
-The PDMR dataset contains multiple query samples. To mimic a realistic single-query prediction scenario, one tumor is held out and treated as a newly arriving query.
+The PDMR dataset contains multiple query samples. To mimic a realistic single-query application, one tumor is held out and treated as a newly arriving query.
 
-The held-out query must not participate in reference feature selection, scaling, PCA fitting, or reference uOT matching.
+The held-out query is initially removed from the reference query cohort. Its known `PairID` is retained separately and is used only for final evaluation.
 
 ### 4.1 Identify eligible query samples
 
-Transfer mode uses five similar reference queries by default. Therefore, the held-out query is selected from a lineage containing at least six query samples: one sample can be held out while at least five remain in the reference cohort.
-
-We additionally require the held-out sample to have a known PDMR pair so that the prediction can be evaluated at the end of the tutorial.
+The held-out sample is selected from a lineage containing at least two query samples so that at least one query from the same lineage remains in the reference cohort. We additionally require the held-out sample to have a known PDMR pair so that its final ranking can be evaluated.
 
 ```{r}
 query_ids <- as.character(query_expr$SampleID)
@@ -116,7 +118,7 @@ cellline_meta <- phenotype[phenotype$SampleID %in% cellline_ids, , drop = FALSE]
 
 query_lineage_count <- table(query_meta$lineage)
 
-eligible_lineages <- names(query_lineage_count[query_lineage_count >= 6])
+eligible_lineages <- names(query_lineage_count[query_lineage_count >= 2])
 
 eligible_lineages <- intersect(
   eligible_lineages,
@@ -131,7 +133,9 @@ eligible_query_meta <- query_meta[
   query_meta$lineage %in% eligible_lineages &
     !is.na(query_meta$PairID) &
     query_meta$PairID != "" &
-    query_meta$PairID %in% valid_cellline_pair_ids, , drop = FALSE]
+    query_meta$PairID %in% valid_cellline_pair_ids, ,
+  drop = FALSE
+]
 
 if (nrow(eligible_query_meta) == 0) {
   stop(
@@ -166,11 +170,11 @@ dim(new_query_expr)
 dim(reference_query_expr)
 ```
 
-All candidate cell lines remain available. This includes the true paired cell line of the held-out PDMR query because the practical prediction task is to determine where that candidate appears in the ranking.
+All candidate cell lines remain available. This includes the true paired cell line of the held-out PDMR query because the practical prediction task is to determine where that candidate appears in the final ranking.
 
 ### 4.3 Separate ground truth from model inputs
 
-The known `PairID` of the held-out PDMR query is used only after prediction.
+The known `PairID` of the held-out PDMR query is retained only for evaluation.
 
 ```{r}
 heldout_pair_id <- as.character(new_query_meta_full$PairID[1])
@@ -187,28 +191,40 @@ heldout_truth <- data.frame(
 heldout_truth
 ```
 
-Construct model metadata without pairing information:
+Construct metadata for Tumor2Line without pairing information:
 
 ```{r}
 reference_sample_ids <- c(
   reference_query_expr$SampleID,
-  cellline_expr$SampleID)
+  cellline_expr$SampleID
+)
 
-reference_phenotype <- phenotype[phenotype$SampleID %in% reference_sample_ids, , drop = FALSE]
-reference_phenotype_model <- reference_phenotype[, setdiff(names(reference_phenotype), "PairID"), drop = FALSE]
-new_query_metadata <- new_query_meta_full[, setdiff(names(new_query_meta_full), "PairID"), drop = FALSE]
+reference_phenotype <- phenotype[
+  phenotype$SampleID %in% reference_sample_ids, ,
+  drop = FALSE
+]
+
+reference_phenotype_model <- reference_phenotype[
+  ,
+  setdiff(names(reference_phenotype), "PairID"),
+  drop = FALSE
+]
+
+new_query_metadata <- new_query_meta_full[
+  ,
+  setdiff(names(new_query_meta_full), "PairID"),
+  drop = FALSE
+]
 ```
 
-The held-out PDMR pair is therefore not available to Tumor2Line during reference construction or prediction.
+The held-out PDMR pair is therefore unavailable to Tumor2Line during matching.
 
 ## 5. Build the reference Tumor2Line cohort
 
-The remaining PDMR tumors form the reference query cohort.
-
-A Tumor2Line reference stores both the population-aware matching result and the molecular transformation required to project future query samples into exactly the same scaled-PCA space.
+The remaining PDMR tumors form the reference query cohort. Before adding the new tumor, we can run Tumor2Line on this existing cohort to establish the reference population.
 
 ```{r}
-reference <- fit_tumor2line_reference(
+reference_result <- run_tumor2line(
   query_expr = reference_query_expr,
   cellline_expr = cellline_expr,
   phenotype = reference_phenotype_model,
@@ -224,24 +240,25 @@ reference <- fit_tumor2line_reference(
   distance = "euclidean",
   epsilon = 0.1,
   rho_query = 1,
-  rho_cellline = 1
+  rho_cellline = 1,
+  evaluate = FALSE
 )
 
-reference
+reference_result
 ```
 
-### 5.1 Reference molecular space
+### 5.1 Reference molecular representation
 
-The reference representation follows:
+Tumor2Line constructs the reference molecular representation using:
 
 ```text
 reference queries + candidate cell lines
         ->
 log2(TPM + 1)
         ->
-variable-gene selection
+gene filtering and variable-gene selection
         ->
-gene-wise scaling
+joint gene-wise scaling
         ->
 PCA
         ->
@@ -250,11 +267,9 @@ PCs reaching 90% cumulative variance
 PC-wise scaling
 ```
 
-The transformation is frozen after fitting. A future query is projected into this molecular space rather than causing the PCA model to be refitted.
-
 ```{r}
-reference$representation$n_pcs
-utils::head(reference$representation$variance)
+reference_result$representation$n_pcs
+utils::head(reference_result$representation$variance)
 ```
 
 ### 5.2 Reference population-aware matching
@@ -262,7 +277,7 @@ utils::head(reference$representation$variance)
 The reference query cohort is matched jointly to the candidate cell-line population using uOT.
 
 ```{r}
-utils::head(reference$ranking)
+utils::head(reference_result$ranking)
 ```
 
 Important columns include:
@@ -277,59 +292,110 @@ Important columns include:
 - `rank`: query-specific candidate rank;
 - `n_candidates`: size of the candidate pool.
 
-## 6. Single-query prediction: population mode
+## 6. Add the new query to the reference population
 
-Population mode is the recommended prediction strategy when a reference query cohort is available.
+For a newly arriving single query, Tumor2Line does not match that sample in isolation. Instead, the new query is added to the existing reference query cohort, forming an updated query population.
 
-The new query is first projected into the frozen reference molecular space. It is then added to the corresponding reference query population, and uOT is rerun for that lineage.
+The complete Tumor2Line workflow is then rerun on the combined query population and candidate cell-line population.
 
 ```text
-reference queries
+reference query cohort
         +
 new query
+        ↓
+combined query population
         +
 candidate cell lines
-        ->
+        ↓
+scaled PCA
+        ↓
 population-aware uOT
-        ->
+        ↓
 new-query cell-line ranking
 ```
 
-### 6.1 Predict the held-out query
+### 6.1 Combine the new query with the reference cohort
 
 ```{r}
-population_prediction <- predict_tumor2line(
-  reference = reference,
-  new_query_expr = new_query_expr,
-  new_query_metadata = new_query_metadata,
-  method = "population"
+combined_query_expr <- rbind(
+  reference_query_expr,
+  new_query_expr
 )
 
-population_prediction
+combined_query_ids <- as.character(combined_query_expr$SampleID)
+
+combined_phenotype_model <- phenotype[
+  phenotype$SampleID %in% c(combined_query_ids, cellline_ids), ,
+  drop = FALSE
+]
+
+combined_phenotype_model <- combined_phenotype_model[
+  ,
+  setdiff(names(combined_phenotype_model), "PairID"),
+  drop = FALSE
+]
+
+dim(combined_query_expr)
+dim(combined_phenotype_model)
 ```
 
-Only the relevant lineage needs to be recomputed. The reference gene set, gene scaling, PCA loadings and PC scaling remain fixed.
+The new query is now part of the query population. Its expression profile therefore contributes to the molecular representation and to the subsequent population-aware uOT matching.
 
-### 6.2 Inspect the population-mode ranking
+### 6.2 Rerun Tumor2Line on the combined population
 
 ```{r}
-population_top5 <- get_top_matches(
-  population_prediction,
-  n = 5
+population_result <- run_tumor2line(
+  query_expr = combined_query_expr,
+  cellline_expr = cellline_expr,
+  phenotype = combined_phenotype_model,
+  sample_id_col = "SampleID",
+  pair_col = NULL,
+  lineage_col = "lineage",
+  sample_type_col = "SampleClass",
+  query_type = "tumor",
+  n_variable_genes = 10000,
+  pca_variance_threshold = 0.90,
+  max_pcs = NULL,
+  candidate_scope = "within_lineage",
+  distance = "euclidean",
+  epsilon = 0.1,
+  rho_query = 1,
+  rho_cellline = 1,
+  evaluate = FALSE
 )
 
-population_top5
+population_result
 ```
 
-Because population mode reruns uOT, its ranking contains the full transport information:
+This step reruns the complete Tumor2Line workflow after the new query has been incorporated into the population.
+
+### 6.3 Extract the new-query ranking
 
 ```{r}
-population_prediction$ranking[,
+new_query_top5 <- get_top_matches(
+  population_result,
+  n = 5,
+  query_id = new_query_id
+)
+
+new_query_top5
+```
+
+To inspect the full candidate ranking for the new query:
+
+```{r}
+new_query_ranking <- population_result$ranking[
+  population_result$ranking$Query_ID == new_query_id, ,
+  drop = FALSE
+]
+
+new_query_ranking[,
   c("Query_ID",
     "CellLine_ID",
     "transport_mass",
     "matching_probability",
     "query_total_mass",
+    "cellline_total_mass",
     "cost",
     "rank")] |>
   utils::head(10)
@@ -337,134 +403,37 @@ population_prediction$ranking[,
 
 Here:
 
-- `transport_mass` is the raw uOT mass for the new query-cell-line pair;
+- `transport_mass` is the raw uOT mass assigned to the new query-cell-line pair;
 - `matching_probability` is the query-normalized transport mass;
-- `rank = 1` is the highest-priority candidate.
+- `query_total_mass` is the total mass transported from the new query;
+- `rank = 1` is the highest-priority candidate cell line.
 
-## 7. Single-query prediction: transfer mode
+## 7. Evaluate the held-out PDMR pair
 
-Transfer mode provides a faster approximate prediction when a reference Tumor2Line cohort has already been fitted.
-
-Instead of rerunning uOT, the new query is projected into the frozen reference scaled-PCA space and compared with reference queries from the same lineage.
-
-The default procedure uses the five closest reference queries.
-
-```text
-new query
-        ->
-frozen reference scaled-PCA space
-        ->
-five most similar reference queries
-        ->
-distance-based neighbor weights
-        ->
-weighted combination of their existing
-Tumor2Line matching probabilities
-        ->
-new-query transfer ranking
-```
-
-### 7.1 Run transfer prediction
+Because the selected PDMR query has known pairing information, we can now reveal the held-out ground truth and locate the known paired cell line in the new query's ranking.
 
 ```{r}
-transfer_prediction <- predict_tumor2line(
-  reference = reference,
-  new_query_expr = new_query_expr,
-  new_query_metadata = new_query_metadata,
-  method = "transfer",
-  k = 5
-)
+true_rows <- new_query_ranking[
+  new_query_ranking$CellLine_ID %in% true_cellline_ids, ,
+  drop = FALSE]
 
-transfer_prediction
-```
-
-### 7.2 Inspect similar reference queries
-
-```{r}
-transfer_prediction$neighbors
-```
-
-The neighbor table should contain information such as:
-
-- `Reference_Query_ID`: reference query used for transfer;
-- `distance`: molecular distance from the new query in the frozen scaled-PCA space;
-- `weight`: normalized contribution of that reference query to the transfer prediction.
-
-The closest reference query receives the largest contribution.
-
-### 7.3 Inspect the transferred cell-line ranking
-
-```{r}
-transfer_top5 <- get_top_matches(
-  transfer_prediction,
-  n = 5
-)
-
-transfer_top5
-```
-
-Transfer mode does not generate a new uOT transport plan for the held-out query. Therefore, it does not have a new-query `transport_mass`.
-
-Instead, its main candidate score is the weighted transfer score:
-
-```{r}
-transfer_prediction$ranking[,
-  c("Query_ID",
-    "CellLine_ID",
-    "transfer_score",
-    "prediction_score",
-    "rank")] |>
-  utils::head(10)
-```
-
-`transfer_score` summarizes the existing Tumor2Line matching probabilities of the selected reference queries after weighting them according to molecular similarity.
-
-Setting `k = 1` reduces transfer mode to the simplest strategy: identify the single most similar reference query and inherit its candidate cell-line ranking.
-
-## 8. Compare the two prediction modes
-
-The two approaches answer the same practical question but use different computational strategies.
-
-### 8.1 Top candidate cell lines
-
-```{r}
-population_top5
-transfer_top5
-```
-
-Population mode performs a new population-aware optimization. Transfer mode approximates the prediction using previously computed reference results.
-
-### 8.2 Evaluate the held-out PDMR pair
-
-Because the selected PDMR query has known pairing information, we can now reveal the held-out ground truth and locate the true paired cell line in each prediction.
-
-```{r}
-summarize_heldout_prediction <- function(prediction, true_cellline_ids, mode) {
-
-  ranking <- prediction$ranking
-
-  true_rows <- ranking[
-    ranking$CellLine_ID %in% true_cellline_ids, , drop = FALSE]
-
-  if (nrow(true_rows) == 0) {
-    return(
-      data.frame(
-        Mode = mode,
-        Top_candidate = NA_character_,
-        True_CellLine_ID = NA_character_,
-        True_pair_rank = NA_integer_,
-        Top1 = FALSE,
-        Top3 = FALSE,
-        Reciprocal_rank = NA_real_,
-        stringsAsFactors = FALSE))
-  }
-
+if (nrow(true_rows) == 0) {
+  single_query_evaluation <- data.frame(
+    Query_ID = new_query_id,
+    Top_candidate = new_query_top5$CellLine_ID[1],
+    True_CellLine_ID = NA_character_,
+    True_pair_rank = NA_integer_,
+    Top1 = FALSE,
+    Top3 = FALSE,
+    Reciprocal_rank = NA_real_,
+    stringsAsFactors = FALSE
+  )
+} else {
   true_row <- true_rows[which.min(true_rows$rank), , drop = FALSE]
-  top_row <- ranking[ranking$rank == 1L, , drop = FALSE]
 
-  data.frame(
-    Mode = mode,
-    Top_candidate = top_row$CellLine_ID[1],
+  single_query_evaluation <- data.frame(
+    Query_ID = new_query_id,
+    Top_candidate = new_query_top5$CellLine_ID[1],
     True_CellLine_ID = true_row$CellLine_ID[1],
     True_pair_rank = as.integer(true_row$rank[1]),
     Top1 = true_row$rank[1] <= 1,
@@ -473,25 +442,6 @@ summarize_heldout_prediction <- function(prediction, true_cellline_ids, mode) {
     stringsAsFactors = FALSE
   )
 }
-```
-
-```{r}
-population_evaluation <- summarize_heldout_prediction(
-  population_prediction,
-  true_cellline_ids,
-  "Population"
-)
-
-transfer_evaluation <- summarize_heldout_prediction(
-  transfer_prediction,
-  true_cellline_ids,
-  "Transfer"
-)
-
-single_query_evaluation <- rbind(
-  population_evaluation,
-  transfer_evaluation
-)
 
 single_query_evaluation
 ```
@@ -505,71 +455,56 @@ For a single held-out query, the most useful quantities are:
 
 These are sample-level outcomes rather than cohort-level accuracy estimates.
 
-### 8.3 Interpretation
+The single held-out example is intended to demonstrate package usage. A formal performance assessment would require repeating the held-out procedure across many or all PDMR queries.
 
-A favorable population-mode result indicates that the held-out query was successfully integrated into the reference population and that population-level competition among candidate cell lines prioritized the known PDMR pair.
+## 8. Why population context matters
 
-A favorable transfer-mode result indicates that transcriptomically similar reference queries already carried useful Tumor2Line ranking information that could be transferred to the new query.
+Tumor2Line is designed to match query and cell-line populations jointly rather than scoring each query-cell-line pair independently.
 
-The single held-out example is intended to demonstrate package usage. It should not be interpreted as a formal comparison of population and transfer prediction performance.
-
-A formal comparison would require repeating the held-out procedure across many or all PDMR queries.
-
-## 9. Which prediction mode should I use?
-
-A practical decision framework is:
+When a new tumor is analyzed, it is therefore added to the existing reference query cohort before Tumor2Line is rerun.
 
 ```text
-Do you have a reference query cohort?
-
-        YES
-         |
-         |-- Need the full population-aware prediction?
-         |       |
-         |       `-- Population mode
-         |           Recommended
-         |
-         `-- Need a fast approximate prediction?
-                 |
-                 `-- Transfer mode
-                     k = 5 by default
-
-        NO
-         |
-         `-- Query-side population context is unavailable
-             Use pairwise query-cell-line similarity
-             This is not the full population-aware Tumor2Line workflow
+single new query
+        +
+reference query cohort
+        ↓
+updated query population
+        ↓
+joint molecular representation
+        ↓
+population-aware uOT
+        ↓
+candidate cell-line ranking
 ```
 
-### 9.1 Population mode
+This preserves the central population-level design of Tumor2Line. The candidate ranking for the new query is obtained in the context of the other query samples and the candidate cell-line population.
 
-Use population mode when:
+## 9. When should I use this workflow?
 
-- a representative reference query cohort is available;
-- the full Tumor2Line population-aware formulation is desired;
-- rerunning lineage-specific uOT is computationally acceptable.
+Use this single-query workflow when:
 
-### 9.2 Transfer mode
+- one new tumor, PDO, PDX, organoid, or other query sample needs candidate cell-line selection;
+- an existing reference query cohort is available;
+- the new query can be combined with that reference cohort using compatible expression measurements;
+- population-aware Tumor2Line matching is desired.
 
-Use transfer mode when:
+The recommended procedure is:
 
-- a fitted Tumor2Line reference already exists;
-- rapid prediction is important;
-- an approximate result based on molecularly similar reference queries is appropriate.
+```text
+new query
+        +
+reference query cohort
+        ↓
+rerun Tumor2Line
+        ↓
+extract new-query candidate ranking
+```
 
-The default `k = 5` combines information from multiple similar reference queries and is generally more stable than transferring the ranking from only one reference sample.
-
-### 9.3 No reference cohort
-
-A single query without a reference query cohort has no query-side population context.
-
-In this setting, query-cell-line similarity can still be computed, but the analysis should not be described as the full population-aware Tumor2Line workflow.
+If no reference query cohort is available, the new sample lacks query-side population context. In that setting, a pairwise query-cell-line similarity analysis may still be possible, but it is not the full population-aware Tumor2Line workflow.
 
 ## 10. Standard cohort analysis
 
-The single-query workflow is built on the same core Tumor2Line algorithm used for standard cohort analysis.
-
-When multiple query samples are available simultaneously, users can run the complete population directly with `run_tumor2line()`.
+The same `run_tumor2line()` function is used when multiple query samples are analyzed simultaneously.
 
 ```{r}
 cohort_result <- run_tumor2line(
@@ -617,7 +552,8 @@ The principal ranking columns are:
 ```{r}
 cohort_top5 <- get_top_matches(
   cohort_result,
-  n = 5)
+  n = 5
+)
 
 utils::head(cohort_top5, 10)
 ```
@@ -643,34 +579,26 @@ These metrics are available only when known pairing information is supplied.
 
 ### 11.1 Cohort-level Top1, Top3 and MRR
 
-```{r fig-accuracy}
+```{r fig-accuracy, fig.alt="Bar chart showing Top1 accuracy, Top3 accuracy, and mean reciprocal rank for Tumor2Line matching."}
 plot_tumor2line_accuracy(cohort_result)
 ```
 
 ### 11.2 True-pair rank distribution
 
-```{r fig-rank}
+```{r fig-rank, fig.alt="Distribution of the ranks of known paired cell lines across query samples. Lower ranks indicate better matching."}
 plot_true_pair_ranks(cohort_result)
 ```
 
 Lower true-pair ranks indicate better recovery. Rank 1 means Tumor2Line selected the known paired cell line as its first recommendation.
 
-### 11.3 Population-mode candidates for the held-out query
+### 11.3 Candidate cell lines for the held-out query
 
-```{r fig-population-top}
+```{r fig-population-top, fig.alt="Top five candidate cell lines for the held-out query after it is added to the reference query cohort and Tumor2Line is rerun."}
 plot_top_matches(
-  population_prediction,
+  population_result,
   query_id = new_query_id,
-  n = 5)
-```
-
-### 11.4 Transfer-mode candidates for the held-out query
-
-```{r fig-transfer-top}
-plot_top_matches(
-  transfer_prediction,
-  query_id = new_query_id,
-  n = 5)
+  n = 5
+)
 ```
 
 ## 12. Using your own data
@@ -679,7 +607,7 @@ plot_top_matches(
 
 For a new dataset containing multiple query samples:
 
-```r 
+```r
 query_expr <- read.delim(
   "query_gene_expression.tsv",
   check.names = FALSE
@@ -713,111 +641,90 @@ get_top_matches(
 
 The query population may contain tumors, PDOs, PDXs, organoids, or other tumor-derived samples.
 
-### 12.2 Build a reusable reference
+### 12.2 Add one new query to an existing reference cohort
 
-If future single-query predictions are expected:
+Assume `reference_query_expr` contains the existing reference query population and `new_query_expr` contains one newly arriving query.
 
 ```r
-reference <- fit_tumor2line_reference(
-  query_expr = query_expr,
+combined_query_expr <- rbind(
+  reference_query_expr,
+  new_query_expr
+)
+```
+
+The metadata for the new query should be added to the metadata for the existing reference cohort and candidate cell lines:
+
+```r
+combined_phenotype <- rbind(
+  reference_query_metadata,
+  new_query_metadata,
+  cellline_metadata
+)
+```
+
+Then rerun Tumor2Line on the combined query population:
+
+```r
+result <- run_tumor2line(
+  query_expr = combined_query_expr,
   cellline_expr = cellline_expr,
-  phenotype = phenotype,
+  phenotype = combined_phenotype,
   sample_id_col = "SampleID",
   pair_col = NULL,
   lineage_col = "lineage",
   candidate_scope = "within_lineage"
 )
-
-saveRDS(
-  reference,
-  "Tumor2Line_reference.rds"
-)
 ```
 
-The fitted reference can then be reused without refitting the molecular representation for every new query.
-
-### 12.3 Predict a new query using population mode
+Finally, extract the candidate cell lines for the new query:
 
 ```r
-reference <- readRDS(
-  "Tumor2Line_reference.rds"
-)
-
-population_prediction <- predict_tumor2line(
-  reference = reference,
-  new_query_expr = new_query_expr,
-  new_query_metadata = new_query_metadata,
-  method = "population"
-)
-
 get_top_matches(
-  population_prediction,
-  n = 5
+  result,
+  n = 5,
+  query_id = new_query_id
 )
 ```
 
-### 12.4 Predict a new query using transfer mode
-
-```r
-transfer_prediction <- predict_tumor2line(
-  reference = reference,
-  new_query_expr = new_query_expr,
-  new_query_metadata = new_query_metadata,
-  method = "transfer",
-  k = 5
-)
-
-transfer_prediction$neighbors
-
-get_top_matches(
-  transfer_prediction,
-  n = 5
-)
-```
+This is the recommended Tumor2Line workflow for a single newly arriving query when a reference query cohort is available.
 
 ## 13. Summary
 
-Tumor2Line supports two complementary analysis settings.
+Tumor2Line is fundamentally a population-aware matching framework.
 
-For a full query cohort:
+For a standard query cohort:
 
 ```text
 query population
         +
 candidate cell-line population
-        ->
+        ↓
 scaled PCA
-        ->
+        ↓
 population-aware uOT
-        ->
-query-specific cell-line ranking
+        ↓
+query-specific cell-line rankings
 ```
 
-For a newly arriving query with an existing reference cohort:
+For one newly arriving query:
 
 ```text
-                           new query
-                               |
-                    reference PCA projection
-                               |
-                +--------------+--------------+
-                |                             |
-                v                             v
-        Population mode                 Transfer mode
-                |                             |
-      reference queries + new          similar reference
-                |                       queries, k = 5
-                v                             |
-               uOT                            v
-                |                      weighted transfer
-                v                             |
-         candidate ranking                    v
-                                        candidate ranking
+reference query cohort
+        +
+new query
+        ↓
+updated query population
+        +
+candidate cell-line population
+        ↓
+rerun Tumor2Line
+        ↓
+new-query candidate cell-line ranking
 ```
 
-Population mode is the recommended strategy when full population-aware prediction is desired. Transfer mode provides a fast approximation based on molecularly similar reference queries.
+The new query is therefore analyzed as part of a query population rather than as an isolated sample.
 
-Known query-cell-line pairing information is never required for prediction and is used only when ground-truth evaluation is available.
+Known query-cell-line pairing information is never required for matching and is used only when ground-truth evaluation is available.
 
 ## 14. Session information
 
