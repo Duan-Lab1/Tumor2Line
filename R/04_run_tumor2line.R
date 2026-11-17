@@ -2,46 +2,33 @@
 
 #' Run the Tumor2Line workflow
 #'
-#' Runs the standard Tumor2Line analysis from a query expression population
-#' and a candidate cell-line expression population. Query samples may represent
-#' patient tumors, PDOs, PDXs, organoids, or other tumor-derived models.
-#'
-#' The standard workflow performs common-gene harmonization, log2(TPM + 1)
-#' transformation, variable-gene selection, joint gene scaling, PCA, scaled PC
-#' representation, and population-aware unbalanced optimal transport (uOT)
-#' matching.
-#'
-#' Known query-cell-line pairs are not required. When known pairs are supplied
-#' through `pair_col`, they can optionally be used for downstream evaluation.
+#' Runs the standard cohort-specific Tumor2Line analysis from a query
+#' population and candidate cell-line population. The workflow performs
+#' common-gene harmonization, scale-aware conversion to log2(TPM + 1),
+#' variable-gene selection, joint gene-wise scaling, PCA, PC selection based on
+#' cumulative explained variance, PC-wise scaling and lineage-aware uOT.
 #'
 #' @param query_expr Expression data for the query population. Samples are rows
 #'   and genes are columns.
-#' @param cellline_expr Candidate cell-line expression data in the same
-#'   orientation as `query_expr`.
+#' @param cellline_expr Candidate cell-line expression data in the same orientation.
 #' @param phenotype Optional sample metadata.
-#' @param sample_id_col Sample-ID column name in `phenotype`.
-#' @param pair_col Optional known-pair column name. Set to `NULL` when known
-#'   query-cell-line pairs are unavailable.
-#' @param lineage_col Optional cancer-lineage column name. Set to `NULL` when
-#'   lineage information is unavailable.
-#' @param sample_type_col Optional column describing biological sample type,
-#'   such as tumor, PDO, PDX, organoid, or cell line.
-#' @param query_type Default biological label assigned to query samples when
-#'   `sample_type_col` is unavailable.
-#' @param cellline_type Default biological label assigned to cell-line samples
-#'   when `sample_type_col` is unavailable.
-#' @param min_mean_tpm Minimum mean TPM for gene filtering.
-#' @param min_detected_fraction Minimum detected fraction for gene filtering.
+#' @param sample_id_col Sample-ID column name in expression data frames and phenotype.
+#' @param pair_col Optional known-pair column name. Set to `NULL` if unavailable.
+#' @param lineage_col Optional cancer-lineage column name. Required for
+#'   `candidate_scope = "within_lineage"`.
+#' @param sample_type_col Optional biological sample-type column name.
+#' @param query_type Default biological label assigned to query samples.
+#' @param cellline_type Default biological label assigned to candidate cell lines.
+#' @param query_input_scale Input scale of query expression: `"raw"` (TPM) or
+#'   `"processed"` (log2(TPM + 1)).
+#' @param cellline_input_scale Input scale of candidate expression.
 #' @param n_variable_genes Maximum number of variable genes.
 #' @param pca_variance_threshold Cumulative PCA variance threshold used to
 #'   determine the number of retained PCs.
-#' @param max_pcs Optional maximum number of PCs to fit. If `NULL`, all
-#'   available PCs are considered and the final number of PCs is determined
-#'   by `pca_variance_threshold`.
 #' @param candidate_scope Candidate pool: `"within_lineage"` or `"global"`.
 #' @param distance Distance metric used to construct the uOT cost matrix.
 #' @param epsilon Entropic regularization parameter.
-#' @param rho_query Query-population marginal-relaxation parameter.
+#' @param rho_query Query marginal-relaxation parameter.
 #' @param rho_cellline Cell-line marginal-relaxation parameter.
 #' @param max_iter Maximum Sinkhorn iterations.
 #' @param tolerance Sinkhorn convergence tolerance.
@@ -59,11 +46,10 @@ run_tumor2line <- function(
     sample_type_col = NULL,
     query_type = "query",
     cellline_type = "cellline",
-    min_mean_tpm = 0.1,
-    min_detected_fraction = 0.1,
+    query_input_scale = c("raw", "processed"),
+    cellline_input_scale = c("raw", "processed"),
     n_variable_genes = 10000,
     pca_variance_threshold = 0.90,
-    max_pcs = NULL,
     candidate_scope = c("within_lineage", "global"),
     distance = c("euclidean", "manhattan", "cosine"),
     epsilon = 0.1,
@@ -75,6 +61,8 @@ run_tumor2line <- function(
 
   candidate_scope <- match.arg(candidate_scope)
   distance <- match.arg(distance)
+  query_input_scale <- match.arg(query_input_scale)
+  cellline_input_scale <- match.arg(cellline_input_scale)
 
   input <- prepare_tumor2line_data(
     query_expr = query_expr,
@@ -86,16 +74,13 @@ run_tumor2line <- function(
     sample_type_col = sample_type_col,
     query_type = query_type,
     cellline_type = cellline_type,
-    min_mean_tpm = min_mean_tpm,
-    min_detected_fraction = min_detected_fraction
+    query_input_scale = query_input_scale,
+    cellline_input_scale = cellline_input_scale
   )
 
   if (candidate_scope == "within_lineage" && is.null(lineage_col)) {
     stop(
-      paste0(
-        "lineage_col is required when candidate_scope = \"within_lineage\". ",
-        "Provide lineage annotations or use candidate_scope = \"global\"."
-      ),
+      "lineage_col is required when candidate_scope = \"within_lineage\".",
       call. = FALSE
     )
   }
@@ -104,7 +89,6 @@ run_tumor2line <- function(
     input = input,
     n_variable_genes = n_variable_genes,
     pca_variance_threshold = pca_variance_threshold,
-    max_pcs = max_pcs,
     scale_genes = TRUE
   )
 
@@ -136,12 +120,11 @@ run_tumor2line <- function(
       sample_type_col = sample_type_col,
       query_type = query_type,
       cellline_type = cellline_type,
-      min_mean_tpm = min_mean_tpm,
-      min_detected_fraction = min_detected_fraction,
+      query_input_scale = query_input_scale,
+      cellline_input_scale = cellline_input_scale,
       n_variable_genes = length(representation$selected_genes),
       selected_pcs = representation$n_pcs,
       pca_variance_threshold = pca_variance_threshold,
-      max_pcs = max_pcs,
       candidate_scope = candidate_scope,
       distance = distance,
       epsilon = epsilon,
@@ -153,28 +136,19 @@ run_tumor2line <- function(
   )
 
   class(result) <- c("Tumor2LineResult", "list")
-
   if (isTRUE(evaluate) && nrow(input$gold_pairs) > 0) {
-    result$evaluation <- evaluate_tumor2line(
-      result,
-      input$gold_pairs
-    )
+    result$evaluation <- evaluate_tumor2line(result, input$gold_pairs)
   } else {
     result$evaluation <- NULL
   }
 
-  return(result)
+  result
 }
 
 #' Print a Tumor2Line result
 #'
-#' Prints a concise summary of a fitted `Tumor2LineResult` object, including
-#' the number of query samples, candidate cell lines, selected genes and PCs,
-#' candidate scope, and known-pair evaluation when available.
-#'
 #' @param x A `Tumor2LineResult` object.
 #' @param ... Additional arguments passed to the print method. Currently unused.
-#'
 #' @return `x`, invisibly.
 #' @export
 print.Tumor2LineResult <- function(x, ...) {
@@ -182,18 +156,12 @@ print.Tumor2LineResult <- function(x, ...) {
   cat("  Queries:         ", length(x$input$query_ids), "\n", sep = "")
   cat("  Cell lines:      ", length(x$input$cellline_ids), "\n", sep = "")
 
-  observed_lineages <- unique(x$input$metadata$lineage)
-  observed_lineages <- observed_lineages[!is.na(observed_lineages) & observed_lineages != ""]
-  cat("  Lineages:        ", length(observed_lineages), "\n", sep = "")
+  lineages <- unique(x$input$metadata$lineage)
+  lineages <- lineages[!is.na(lineages) & lineages != ""]
+  cat("  Lineages:        ", length(lineages), "\n", sep = "")
   cat("  Selected genes:  ", length(x$representation$selected_genes), "\n", sep = "")
   cat("  Selected PCs:    ", x$representation$n_pcs, "\n", sep = "")
   cat("  PCA threshold:   ", x$parameters$pca_variance_threshold, "\n", sep = "")
-  cat(
-    "  Maximum PCs:     ",
-    if (is.null(x$parameters$max_pcs)) "NULL (no user-defined limit)" else x$parameters$max_pcs,
-    "\n",
-    sep = ""
-  )
   cat("  Candidate scope: ", x$parameters$candidate_scope, "\n", sep = "")
   cat("  Ranking rows:    ", nrow(x$ranking), "\n", sep = "")
 
@@ -212,18 +180,12 @@ print.Tumor2LineResult <- function(x, ...) {
 #' @param n Number of top candidates to return per query.
 #' @param query_id Optional query sample ID. When supplied, only the requested
 #'   query sample or samples are returned.
-#'
 #' @return A tibble of top-ranked candidate cell lines.
 #' @export
-get_top_matches <- function(
-    result,
-    n = 5,
-    query_id = NULL) {
-
+get_top_matches <- function(result, n = 5, query_id = NULL) {
   valid_result <- inherits(result, "Tumor2LineResult") ||
     inherits(result, "Tumor2LineReference") ||
     inherits(result, "Tumor2LinePrediction")
-
   if (!valid_result) {
     stop(
       "result must be a Tumor2LineResult, Tumor2LineReference or Tumor2LinePrediction object.",

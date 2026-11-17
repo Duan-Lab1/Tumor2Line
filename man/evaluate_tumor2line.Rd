@@ -8,18 +8,17 @@ evaluate_tumor2line(result, true_pairs = NULL)
 }
 \arguments{
 \item{result}{A `Tumor2LineResult`, `Tumor2LineReference`,
-`Tumor2LinePrediction` object or a ranking data frame with `Query_ID`,
-`CellLine_ID`, `rank` and `n_candidates` columns.}
+`Tumor2LinePrediction` object or ranking data frame.}
 
 \item{true_pairs}{Optional data frame containing `Query_ID` and `CellLine_ID`.
-If omitted for a `Tumor2LineResult` or `Tumor2LineReference`, known pairs
-stored in the prepared input object are used.}
+If omitted for a fitted result/reference, stored known pairs are used.}
 }
 \value{
-An object of class `Tumor2LineEvaluation` containing query-level
-  true-pair ranks, overall performance and lineage-specific performance.
+A `Tumor2LineEvaluation` object containing query-level true-pair
+  ranks, overall performance and lineage-specific performance.
 }
 \description{
 Computes query-level true-pair ranks and summary metrics including Top1
-accuracy, Top3 accuracy and mean reciprocal rank (MRR).
+accuracy, Top3 accuracy and mean reciprocal rank (MRR). Ground-truth pairs
+are used only after matching and are not required by the matching algorithm.
 }

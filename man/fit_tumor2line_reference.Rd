@@ -14,11 +14,10 @@ fit_tumor2line_reference(
   sample_type_col = NULL,
   query_type = "query",
   cellline_type = "cellline",
-  min_mean_tpm = 0.1,
-  min_detected_fraction = 0.1,
+  query_input_scale = c("raw", "processed"),
+  cellline_input_scale = c("raw", "processed"),
   n_variable_genes = 10000,
   pca_variance_threshold = 0.9,
-  max_pcs = NULL,
   candidate_scope = c("within_lineage", "global"),
   distance = c("euclidean", "manhattan", "cosine"),
   epsilon = 0.1,
@@ -30,42 +29,43 @@ fit_tumor2line_reference(
 )
 }
 \arguments{
-\item{query_expr}{Expression data for the reference query population.}
+\item{query_expr}{Expression data for the query population. Samples are rows
+and genes are columns.}
 
-\item{cellline_expr}{Candidate cell-line expression data.}
+\item{cellline_expr}{Candidate cell-line expression data in the same orientation.}
 
 \item{phenotype}{Optional sample metadata.}
 
-\item{sample_id_col}{Sample-ID column name in `phenotype` and data-frame
-expression inputs.}
+\item{sample_id_col}{Sample-ID column name in expression data frames and phenotype.}
 
-\item{pair_col}{Optional known-pair column used only for evaluation.}
+\item{pair_col}{Optional known-pair column name. Set to `NULL` if unavailable.}
 
-\item{lineage_col}{Optional cancer-lineage column name.}
+\item{lineage_col}{Optional cancer-lineage column name. Required for
+`candidate_scope = "within_lineage"`.}
 
 \item{sample_type_col}{Optional biological sample-type column name.}
 
 \item{query_type}{Default biological label assigned to query samples.}
 
-\item{cellline_type}{Default biological label assigned to cell-line samples.}
+\item{cellline_type}{Default biological label assigned to candidate cell lines.}
 
-\item{min_mean_tpm}{Minimum mean TPM for gene filtering.}
+\item{query_input_scale}{Input scale of query expression: `"raw"` (TPM) or
+`"processed"` (log2(TPM + 1)).}
 
-\item{min_detected_fraction}{Minimum detected fraction for gene filtering.}
+\item{cellline_input_scale}{Input scale of candidate expression.}
 
 \item{n_variable_genes}{Maximum number of variable genes.}
 
-\item{pca_variance_threshold}{Cumulative PCA variance threshold.}
-
-\item{max_pcs}{Optional maximum number of PCs to fit.}
+\item{pca_variance_threshold}{Cumulative PCA variance threshold used to
+determine the number of retained PCs.}
 
 \item{candidate_scope}{Candidate pool: `"within_lineage"` or `"global"`.}
 
-\item{distance}{Distance metric used for uOT matching.}
+\item{distance}{Distance metric used to construct the uOT cost matrix.}
 
 \item{epsilon}{Entropic regularization parameter.}
 
-\item{rho_query}{Query-population marginal-relaxation parameter.}
+\item{rho_query}{Query marginal-relaxation parameter.}
 
 \item{rho_cellline}{Cell-line marginal-relaxation parameter.}
 
@@ -73,14 +73,15 @@ expression inputs.}
 
 \item{tolerance}{Sinkhorn convergence tolerance.}
 
-\item{evaluate}{Whether to evaluate known pairs when `pair_col` is supplied.}
+\item{evaluate}{Whether to evaluate known pairs automatically when available.}
 }
 \value{
 An object of class `Tumor2LineReference`.
 }
 \description{
-Fits the standard Tumor2Line workflow to a reference query cohort and a
-candidate cell-line population while retaining the gene-scaling parameters,
-PCA loadings and PC-scaling parameters required to project future query
-samples into the same molecular space.
+Fits cohort-specific Tumor2Line PCA and uOT using an existing query cohort
+and candidate cell-line population. The fitted gene scaling, PCA loadings
+and PC scaling are retained so that newly arriving query samples can be
+projected into the same molecular space. New queries are added to the query
+population and uOT is rerun; no ranking-transfer mode is used.
 }

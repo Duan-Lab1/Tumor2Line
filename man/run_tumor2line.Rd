@@ -14,11 +14,10 @@ run_tumor2line(
   sample_type_col = NULL,
   query_type = "query",
   cellline_type = "cellline",
-  min_mean_tpm = 0.1,
-  min_detected_fraction = 0.1,
+  query_input_scale = c("raw", "processed"),
+  cellline_input_scale = c("raw", "processed"),
   n_variable_genes = 10000,
   pca_variance_threshold = 0.9,
-  max_pcs = NULL,
   candidate_scope = c("within_lineage", "global"),
   distance = c("euclidean", "manhattan", "cosine"),
   epsilon = 0.1,
@@ -33,40 +32,32 @@ run_tumor2line(
 \item{query_expr}{Expression data for the query population. Samples are rows
 and genes are columns.}
 
-\item{cellline_expr}{Candidate cell-line expression data in the same
-orientation as `query_expr`.}
+\item{cellline_expr}{Candidate cell-line expression data in the same orientation.}
 
 \item{phenotype}{Optional sample metadata.}
 
-\item{sample_id_col}{Sample-ID column name in `phenotype`.}
+\item{sample_id_col}{Sample-ID column name in expression data frames and phenotype.}
 
-\item{pair_col}{Optional known-pair column name. Set to `NULL` when known
-query-cell-line pairs are unavailable.}
+\item{pair_col}{Optional known-pair column name. Set to `NULL` if unavailable.}
 
-\item{lineage_col}{Optional cancer-lineage column name. Set to `NULL` when
-lineage information is unavailable.}
+\item{lineage_col}{Optional cancer-lineage column name. Required for
+`candidate_scope = "within_lineage"`.}
 
-\item{sample_type_col}{Optional column describing biological sample type,
-such as tumor, PDO, PDX, organoid, or cell line.}
+\item{sample_type_col}{Optional biological sample-type column name.}
 
-\item{query_type}{Default biological label assigned to query samples when
-`sample_type_col` is unavailable.}
+\item{query_type}{Default biological label assigned to query samples.}
 
-\item{cellline_type}{Default biological label assigned to cell-line samples
-when `sample_type_col` is unavailable.}
+\item{cellline_type}{Default biological label assigned to candidate cell lines.}
 
-\item{min_mean_tpm}{Minimum mean TPM for gene filtering.}
+\item{query_input_scale}{Input scale of query expression: `"raw"` (TPM) or
+`"processed"` (log2(TPM + 1)).}
 
-\item{min_detected_fraction}{Minimum detected fraction for gene filtering.}
+\item{cellline_input_scale}{Input scale of candidate expression.}
 
 \item{n_variable_genes}{Maximum number of variable genes.}
 
 \item{pca_variance_threshold}{Cumulative PCA variance threshold used to
 determine the number of retained PCs.}
-
-\item{max_pcs}{Optional maximum number of PCs to fit. If `NULL`, all
-available PCs are considered and the final number of PCs is determined
-by `pca_variance_threshold`.}
 
 \item{candidate_scope}{Candidate pool: `"within_lineage"` or `"global"`.}
 
@@ -74,7 +65,7 @@ by `pca_variance_threshold`.}
 
 \item{epsilon}{Entropic regularization parameter.}
 
-\item{rho_query}{Query-population marginal-relaxation parameter.}
+\item{rho_query}{Query marginal-relaxation parameter.}
 
 \item{rho_cellline}{Cell-line marginal-relaxation parameter.}
 
@@ -88,16 +79,9 @@ by `pca_variance_threshold`.}
 An object of class `Tumor2LineResult`.
 }
 \description{
-Runs the standard Tumor2Line analysis from a query expression population
-and a candidate cell-line expression population. Query samples may represent
-patient tumors, PDOs, PDXs, organoids, or other tumor-derived models.
-}
-\details{
-The standard workflow performs common-gene harmonization, log2(TPM + 1)
-transformation, variable-gene selection, joint gene scaling, PCA, scaled PC
-representation, and population-aware unbalanced optimal transport (uOT)
-matching.
-
-Known query-cell-line pairs are not required. When known pairs are supplied
-through `pair_col`, they can optionally be used for downstream evaluation.
+Runs the standard cohort-specific Tumor2Line analysis from a query
+population and candidate cell-line population. The workflow performs
+common-gene harmonization, scale-aware conversion to log2(TPM + 1),
+variable-gene selection, joint gene-wise scaling, PCA, PC selection based on
+cumulative explained variance, PC-wise scaling and lineage-aware uOT.
 }

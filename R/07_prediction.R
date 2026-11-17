@@ -1,102 +1,31 @@
-# Single-query prediction -----------------------------------------------------
-
-coerce_prediction_expression <- function(x, sample_id_col = "SampleID") {
-  if (is.data.frame(x)) {
-    if (sample_id_col %in% colnames(x)) {
-      sample_ids <- as.character(x[[sample_id_col]])
-      gene_data <- x[, setdiff(colnames(x), sample_id_col), drop = FALSE]
-    } else {
-      default_rownames <- identical(rownames(x), as.character(seq_len(nrow(x))))
-      if (is.null(rownames(x)) || default_rownames) {
-        stop(
-          "new_query_expr must contain a sample-ID column or informative row names.",
-          call. = FALSE
-        )
-      }
-      sample_ids <- rownames(x)
-      gene_data <- x
-    }
-
-    numeric_columns <- vapply(gene_data, is.numeric, logical(1))
-    if (!all(numeric_columns)) {
-      stop(
-        "All gene-expression columns in new_query_expr must be numeric.",
-        call. = FALSE
-      )
-    }
-
-    mat <- as.matrix(gene_data)
-  } else if (is.matrix(x)) {
-    mat <- x
-    if (is.null(rownames(mat))) {
-      stop(
-        "Matrix new_query_expr must contain sample IDs as row names.",
-        call. = FALSE
-      )
-    }
-    sample_ids <- rownames(mat)
-    suppressWarnings(storage.mode(mat) <- "double")
-  } else {
-    stop(
-      "new_query_expr must be a data frame or numeric matrix.",
-      call. = FALSE
-    )
-  }
-
-  if (length(sample_ids) != nrow(mat) || any(is.na(sample_ids) | sample_ids == "")) {
-    stop("All new query samples must have non-empty sample IDs.", call. = FALSE)
-  }
-  if (anyDuplicated(sample_ids)) {
-    stop("Duplicated sample IDs were found in new_query_expr.", call. = FALSE)
-  }
-  if (is.null(colnames(mat)) || any(is.na(colnames(mat)) | colnames(mat) == "")) {
-    stop("new_query_expr must contain gene names as column names.", call. = FALSE)
-  }
-  if (anyDuplicated(colnames(mat))) {
-    stop("Duplicated gene names were found in new_query_expr.", call. = FALSE)
-  }
-  if (!is.numeric(mat)) {
-    stop("Gene-expression values in new_query_expr must be numeric.", call. = FALSE)
-  }
-  if (any(!is.finite(mat))) {
-    stop("new_query_expr contains non-finite expression values.", call. = FALSE)
-  }
-  if (any(mat < 0)) {
-    stop("new_query_expr must contain non-negative TPM-like expression values.", call. = FALSE)
-  }
-
-  rownames(mat) <- sample_ids
-  mat
-}
+# Single-query / new-query population prediction ------------------------------
 
 prepare_prediction_metadata <- function(reference, sample_ids, new_query_metadata = NULL) {
-  sample_id_col <- reference$reference_columns$sample_id_col
-  lineage_col <- reference$reference_columns$lineage_col
-  sample_type_col <- reference$reference_columns$sample_type_col
-  query_type <- reference$reference_columns$query_type
-  candidate_scope <- reference$parameters$candidate_scope
+  reference_columns <- reference$reference_columns
+  sample_id_col <- reference_columns$sample_id_col
+  lineage_col <- reference_columns$lineage_col
+  sample_type_col <- reference_columns$sample_type_col
+  pair_col <- reference_columns$pair_col
 
   metadata <- data.frame(
     SampleID = sample_ids,
-    SampleRole = rep("query", length(sample_ids)),
-    SampleType = rep(query_type, length(sample_ids)),
-    lineage = rep(NA_character_, length(sample_ids)),
-    PairID = rep(NA_character_, length(sample_ids)),
+    SampleRole = "query",
+    SampleType = reference_columns$query_type,
+    lineage = NA_character_,
+    PairID = NA_character_,
     stringsAsFactors = FALSE
   )
 
   if (!is.null(new_query_metadata)) {
     new_query_metadata <- as.data.frame(new_query_metadata, check.names = FALSE)
-    if (!sample_id_col %in% colnames(new_query_metadata)) {
-      stop(
-        "new_query_metadata does not contain the sample-ID column: ",
-        sample_id_col,
-        call. = FALSE
-      )
+    assert_columns(new_query_metadata, sample_id_col, "new_query_metadata")
+    new_ids <- as.character(new_query_metadata[[sample_id_col]])
+    if (anyNA(new_ids) || any(new_ids == "") || anyDuplicated(new_ids)) {
+      stop("new_query_metadata sample IDs must be non-missing, non-empty and unique.", call. = FALSE)
     }
 
-    idx <- match(sample_ids, as.character(new_query_metadata[[sample_id_col]]))
-    if (any(is.na(idx))) {
+    idx <- match(sample_ids, new_ids)
+    if (anyNA(idx)) {
       stop(
         "Some new query samples are missing from new_query_metadata: ",
         paste(sample_ids[is.na(idx)], collapse = ", "),
@@ -105,27 +34,23 @@ prepare_prediction_metadata <- function(reference, sample_ids, new_query_metadat
     }
 
     if (!is.null(lineage_col)) {
-      if (!lineage_col %in% colnames(new_query_metadata)) {
-        stop(
-          "new_query_metadata does not contain the lineage column: ",
-          lineage_col,
-          call. = FALSE
-        )
-      }
+      assert_columns(new_query_metadata, lineage_col, "new_query_metadata")
       metadata$lineage <- as.character(new_query_metadata[[lineage_col]][idx])
     }
-
     if (!is.null(sample_type_col) && sample_type_col %in% colnames(new_query_metadata)) {
       sample_type <- as.character(new_query_metadata[[sample_type_col]][idx])
-      keep <- !is.na(sample_type) & sample_type != ""
-      metadata$SampleType[keep] <- sample_type[keep]
+      use_sample_type <- !is.na(sample_type) & sample_type != ""
+      metadata$SampleType[use_sample_type] <- sample_type[use_sample_type]
+    }
+    if (!is.null(pair_col) && pair_col %in% colnames(new_query_metadata)) {
+      metadata$PairID <- as.character(new_query_metadata[[pair_col]][idx])
     }
   }
 
-  if (candidate_scope == "within_lineage") {
+  if (reference$parameters$candidate_scope == "within_lineage") {
     if (is.null(lineage_col)) {
       stop(
-        "The reference was configured for within-lineage prediction but no lineage column was stored.",
+        "The fitted reference has no lineage column but uses within-lineage matching.",
         call. = FALSE
       )
     }
@@ -142,32 +67,41 @@ prepare_prediction_metadata <- function(reference, sample_ids, new_query_metadat
   metadata
 }
 
-project_new_query <- function(reference, new_query_expr) {
-  sample_id_col <- reference$reference_columns$sample_id_col
-  expression_tpm <- coerce_prediction_expression(
+project_new_query <- function(
+    reference,
     new_query_expr,
-    sample_id_col = sample_id_col
+    new_query_input_scale = c("raw", "processed")) {
+
+  new_query_input_scale <- match.arg(new_query_input_scale)
+  expression_input <- coerce_expression_matrix(
+    new_query_expr,
+    sample_id_col = reference$reference_columns$sample_id_col,
+    object_name = "new_query_expr"
   )
 
   existing_ids <- reference$input$metadata$SampleID
-  overlapping_ids <- intersect(rownames(expression_tpm), existing_ids)
+  overlapping_ids <- intersect(rownames(expression_input), existing_ids)
   if (length(overlapping_ids) > 0) {
     stop(
-      "New query sample IDs already exist in the reference: ",
+      "New query sample IDs already exist in the fitted reference: ",
       paste(overlapping_ids, collapse = ", "),
       call. = FALSE
     )
   }
 
-  expression_log <- log2(expression_tpm + 1)
+  normalized <- normalize_expression_scale(
+    expression_input,
+    new_query_input_scale,
+    "new_query_expr"
+  )
   projected <- project_expression_to_reference(
-    expression_log = expression_log,
+    expression_log = normalized$expression_log,
     reference_representation = reference$representation
   )
 
   list(
-    expression_tpm = expression_tpm,
-    expression_log = expression_log,
+    expression_log = normalized$expression_log,
+    input_scale = new_query_input_scale,
     scores = projected$scores,
     scores_raw = projected$scores_raw
   )
@@ -175,35 +109,13 @@ project_new_query <- function(reference, new_query_expr) {
 
 #' Fit a reusable Tumor2Line reference cohort
 #'
-#' Fits the standard Tumor2Line workflow to a reference query cohort and a
-#' candidate cell-line population while retaining the gene-scaling parameters,
-#' PCA loadings and PC-scaling parameters required to project future query
-#' samples into the same molecular space.
+#' Fits cohort-specific Tumor2Line PCA and uOT using an existing query cohort
+#' and candidate cell-line population. The fitted gene scaling, PCA loadings
+#' and PC scaling are retained so that newly arriving query samples can be
+#' projected into the same molecular space. New queries are added to the query
+#' population and uOT is rerun; no ranking-transfer mode is used.
 #'
-#' @param query_expr Expression data for the reference query population.
-#' @param cellline_expr Candidate cell-line expression data.
-#' @param phenotype Optional sample metadata.
-#' @param sample_id_col Sample-ID column name in `phenotype` and data-frame
-#'   expression inputs.
-#' @param pair_col Optional known-pair column used only for evaluation.
-#' @param lineage_col Optional cancer-lineage column name.
-#' @param sample_type_col Optional biological sample-type column name.
-#' @param query_type Default biological label assigned to query samples.
-#' @param cellline_type Default biological label assigned to cell-line samples.
-#' @param min_mean_tpm Minimum mean TPM for gene filtering.
-#' @param min_detected_fraction Minimum detected fraction for gene filtering.
-#' @param n_variable_genes Maximum number of variable genes.
-#' @param pca_variance_threshold Cumulative PCA variance threshold.
-#' @param max_pcs Optional maximum number of PCs to fit.
-#' @param candidate_scope Candidate pool: `"within_lineage"` or `"global"`.
-#' @param distance Distance metric used for uOT matching.
-#' @param epsilon Entropic regularization parameter.
-#' @param rho_query Query-population marginal-relaxation parameter.
-#' @param rho_cellline Cell-line marginal-relaxation parameter.
-#' @param max_iter Maximum Sinkhorn iterations.
-#' @param tolerance Sinkhorn convergence tolerance.
-#' @param evaluate Whether to evaluate known pairs when `pair_col` is supplied.
-#'
+#' @inheritParams run_tumor2line
 #' @return An object of class `Tumor2LineReference`.
 #' @export
 fit_tumor2line_reference <- function(
@@ -216,11 +128,10 @@ fit_tumor2line_reference <- function(
     sample_type_col = NULL,
     query_type = "query",
     cellline_type = "cellline",
-    min_mean_tpm = 0.1,
-    min_detected_fraction = 0.1,
+    query_input_scale = c("raw", "processed"),
+    cellline_input_scale = c("raw", "processed"),
     n_variable_genes = 10000,
     pca_variance_threshold = 0.90,
-    max_pcs = NULL,
     candidate_scope = c("within_lineage", "global"),
     distance = c("euclidean", "manhattan", "cosine"),
     epsilon = 0.1,
@@ -232,6 +143,8 @@ fit_tumor2line_reference <- function(
 
   candidate_scope <- match.arg(candidate_scope)
   distance <- match.arg(distance)
+  query_input_scale <- match.arg(query_input_scale)
+  cellline_input_scale <- match.arg(cellline_input_scale)
 
   result <- run_tumor2line(
     query_expr = query_expr,
@@ -243,11 +156,10 @@ fit_tumor2line_reference <- function(
     sample_type_col = sample_type_col,
     query_type = query_type,
     cellline_type = cellline_type,
-    min_mean_tpm = min_mean_tpm,
-    min_detected_fraction = min_detected_fraction,
+    query_input_scale = query_input_scale,
+    cellline_input_scale = cellline_input_scale,
     n_variable_genes = n_variable_genes,
     pca_variance_threshold = pca_variance_threshold,
-    max_pcs = max_pcs,
     candidate_scope = candidate_scope,
     distance = distance,
     epsilon = epsilon,
@@ -262,10 +174,7 @@ fit_tumor2line_reference <- function(
     "selected_genes", "gene_center", "gene_scale", "pca_rotation",
     "pc_center", "pc_scale", "n_pcs"
   )
-  missing_projection_fields <- setdiff(
-    required_projection_fields,
-    names(result$representation)
-  )
+  missing_projection_fields <- setdiff(required_projection_fields, names(result$representation))
   if (length(missing_projection_fields) > 0) {
     stop(
       "The fitted representation does not contain all projection parameters: ",
@@ -288,15 +197,14 @@ fit_tumor2line_reference <- function(
   result
 }
 
-#' Print a Tumor2Line reference
+#' Print a Tumor2Line reference cohort
 #'
 #' @param x A `Tumor2LineReference` object.
 #' @param ... Additional arguments passed to the print method. Currently unused.
 #' @return `x`, invisibly.
-#' @keywords internal
 #' @export
 print.Tumor2LineReference <- function(x, ...) {
-  cat("Tumor2Line reference\n")
+  cat("Tumor2Line reference cohort\n")
   cat("  Reference queries: ", length(x$reference_query_ids), "\n", sep = "")
   cat("  Cell lines:        ", length(x$reference_cellline_ids), "\n", sep = "")
   cat("  Selected genes:    ", length(x$representation$selected_genes), "\n", sep = "")
@@ -311,27 +219,20 @@ predict_population_mode <- function(reference, projected, new_metadata) {
 
   if (candidate_scope == "within_lineage") {
     affected_lineages <- unique(new_metadata$lineage)
-
-    missing_query_lineages <- setdiff(
-      affected_lineages,
-      unique(reference_metadata$lineage[reference_metadata$SampleRole == "query"])
+    reference_query_lineages <- unique(
+      reference_metadata$lineage[reference_metadata$SampleRole == "query"]
     )
-    if (length(missing_query_lineages) > 0) {
-      stop(
-        "No reference queries are available for lineage(s): ",
-        paste(missing_query_lineages, collapse = ", "),
-        call. = FALSE
-      )
-    }
-
-    missing_cellline_lineages <- setdiff(
-      affected_lineages,
-      unique(reference_metadata$lineage[reference_metadata$SampleRole == "cellline"])
+    reference_cellline_lineages <- unique(
+      reference_metadata$lineage[reference_metadata$SampleRole == "cellline"]
     )
-    if (length(missing_cellline_lineages) > 0) {
+
+    missing_query_lineages <- setdiff(affected_lineages, reference_query_lineages)
+    missing_cellline_lineages <- setdiff(affected_lineages, reference_cellline_lineages)
+    if (length(missing_query_lineages) > 0 || length(missing_cellline_lineages) > 0) {
+      missing <- unique(c(missing_query_lineages, missing_cellline_lineages))
       stop(
-        "No candidate cell lines are available for lineage(s): ",
-        paste(missing_cellline_lineages, collapse = ", "),
+        "The fitted reference lacks query or candidate cell-line samples for lineage(s): ",
+        paste(missing, collapse = ", "),
         call. = FALSE
       )
     }
@@ -351,15 +252,8 @@ predict_population_mode <- function(reference, projected, new_metadata) {
     ,
     drop = FALSE
   ]
-
-  combined_scores <- rbind(
-    reference_scores_use,
-    projected$scores
-  )
-  combined_metadata <- rbind(
-    reference_metadata_use,
-    new_metadata
-  )
+  combined_scores <- rbind(reference_scores_use, projected$scores)
+  combined_metadata <- rbind(reference_metadata_use, new_metadata)
 
   ranking_all <- run_uot_matching(
     representation = combined_scores,
@@ -373,290 +267,133 @@ predict_population_mode <- function(reference, projected, new_metadata) {
     tolerance = reference$parameters$tolerance
   )
 
-  ranking <- ranking_all[
-    ranking_all$Query_ID %in% new_metadata$SampleID,
-    ,
-    drop = FALSE
-  ]
-  ranking$prediction_score <- ranking$matching_probability
-  ranking$prediction_mode <- "population"
-  ranking
+  ranking_all[ranking_all$Query_ID %in% new_metadata$SampleID, , drop = FALSE] |>
+    dplyr::arrange(.data$Query_ID, .data$rank)
 }
 
-predict_transfer_mode <- function(
-    reference,
-    projected,
-    new_metadata,
-    k = 5,
-    neighbor_epsilon = 1e-8) {
-
-  k <- as.integer(k)
-  if (length(k) != 1 || is.na(k) || k < 1) {
-    stop("k must be an integer >= 1.", call. = FALSE)
-  }
-  if (!is.finite(neighbor_epsilon) || neighbor_epsilon <= 0) {
-    stop("neighbor_epsilon must be > 0.", call. = FALSE)
-  }
-
-  candidate_scope <- reference$parameters$candidate_scope
-  reference_metadata <- reference$input$metadata
-  reference_query_metadata <- reference_metadata[
-    reference_metadata$SampleRole == "query",
-    ,
-    drop = FALSE
-  ]
-
-  ranking_out <- vector("list", nrow(new_metadata))
-  neighbors_out <- vector("list", nrow(new_metadata))
-
-  for (i in seq_len(nrow(new_metadata))) {
-    query_id <- new_metadata$SampleID[i]
-    query_lineage <- new_metadata$lineage[i]
-
-    if (candidate_scope == "within_lineage") {
-      neighbor_meta <- reference_query_metadata[
-        reference_query_metadata$lineage == query_lineage,
-        ,
-        drop = FALSE
-      ]
-    } else {
-      neighbor_meta <- reference_query_metadata
-    }
-
-    if (nrow(neighbor_meta) < 1) {
-      stop(
-        "No reference queries are available for transfer prediction of ",
-        query_id,
-        ".",
-        call. = FALSE
-      )
-    }
-
-    k_use <- min(k, nrow(neighbor_meta))
-    if (k_use < k) {
-      warning(
-        "Only ",
-        k_use,
-        " reference queries are available for ",
-        query_id,
-        "; using all available reference queries.",
-        call. = FALSE
-      )
-    }
-
-    neighbor_scores <- reference$representation$scores[
-      neighbor_meta$SampleID,
-      ,
-      drop = FALSE
-    ]
-    distance_matrix <- calculate_cost_matrix(
-      query_matrix = projected$scores[query_id, , drop = FALSE],
-      cellline_matrix = neighbor_scores,
-      distance = reference$parameters$distance,
-      normalize = FALSE
-    )
-    distances <- as.numeric(distance_matrix[1, ])
-    names(distances) <- colnames(distance_matrix)
-
-    ord <- order(distances, names(distances))
-    selected_ids <- names(distances)[ord[seq_len(k_use)]]
-    selected_distances <- distances[selected_ids]
-    raw_weights <- 1 / (selected_distances + neighbor_epsilon)
-    weights <- raw_weights / sum(raw_weights)
-
-    neighbors <- tibble::tibble(
-      Query_ID = query_id,
-      Reference_Query_ID = selected_ids,
-      lineage = query_lineage,
-      distance = as.numeric(selected_distances),
-      weight = as.numeric(weights),
-      neighbor_rank = seq_len(k_use)
-    )
-    neighbors_out[[i]] <- neighbors
-
-    reference_ranking <- reference$ranking[
-      reference$ranking$Query_ID %in% selected_ids,
-      ,
-      drop = FALSE
-    ]
-    if (candidate_scope == "within_lineage") {
-      reference_ranking <- reference_ranking[
-        reference_ranking$lineage == query_lineage,
-        ,
-        drop = FALSE
-      ]
-    }
-
-    if (nrow(reference_ranking) == 0) {
-      stop(
-        "No reference ranking information is available for transfer prediction of ",
-        query_id,
-        ".",
-        call. = FALSE
-      )
-    }
-
-    weight_lookup <- stats::setNames(weights, selected_ids)
-    reference_ranking$neighbor_weight <- weight_lookup[reference_ranking$Query_ID]
-    reference_ranking$weighted_probability <-
-      reference_ranking$matching_probability * reference_ranking$neighbor_weight
-
-    cell_ids <- unique(reference_ranking$CellLine_ID)
-    transfer_score <- vapply(
-      cell_ids,
-      function(cell_id) {
-        sum(
-          reference_ranking$weighted_probability[
-            reference_ranking$CellLine_ID == cell_id
-          ],
-          na.rm = TRUE
-        )
-      },
-      numeric(1)
-    )
-
-    ord_cell <- order(-transfer_score, cell_ids)
-    ranks <- match(seq_along(cell_ids), ord_cell)
-
-    ranking_out[[i]] <- tibble::tibble(
-      Method = "Tumor2Line transfer",
-      lineage = query_lineage,
-      Query_ID = query_id,
-      CellLine_ID = cell_ids,
-      transfer_score = as.numeric(transfer_score),
-      prediction_score = as.numeric(transfer_score),
-      rank = as.integer(ranks),
-      n_candidates = length(cell_ids),
-      n_reference_neighbors = k_use,
-      candidate_scope = candidate_scope,
-      prediction_mode = "transfer"
-    )
-  }
-
-  list(
-    ranking = dplyr::bind_rows(ranking_out) |>
-      dplyr::arrange(.data$Query_ID, .data$rank),
-    neighbors = dplyr::bind_rows(neighbors_out) |>
-      dplyr::arrange(.data$Query_ID, .data$neighbor_rank)
-  )
-}
-
-#' Predict candidate cell lines for a new query
+#' Predict candidate cell lines for new query samples using population mode
 #'
-#' Projects a new query into a frozen Tumor2Line reference representation and
-#' predicts candidate cell lines using either full population-aware uOT
-#' recomputation (`method = "population"`) or nearest-reference ranking transfer
-#' (`method = "transfer"`).
+#' Projects new query samples into the frozen molecular representation of a
+#' fitted Tumor2Line reference cohort, adds them to the corresponding query
+#' population and reruns uOT against the reference candidate cell-line
+#' population. The PCA transformation is frozen, but the query population used
+#' for uOT is updated to include the new samples.
 #'
-#' Population mode adds the projected query to the corresponding reference
-#' query population and reruns uOT without refitting variable genes, gene
-#' scaling, PCA or PC scaling. Transfer mode identifies molecularly similar
-#' reference queries and combines their existing `matching_probability` values
-#' using inverse-distance weights.
-#'
-#' @param reference A `Tumor2LineReference` object.
-#' @param new_query_expr Expression data for a single new query sample.
-#' @param new_query_metadata Metadata for the new query sample. Required for
-#'   within-lineage prediction.
-#' @param method Prediction strategy: `"population"` or `"transfer"`.
-#' @param k Number of similar reference queries used for transfer mode.
-#' @param neighbor_epsilon Small positive constant used for inverse-distance
-#'   weighting in transfer mode.
-#'
-#' @return An object of class `Tumor2LinePrediction` containing the new-query
-#'   candidate ranking and, for transfer mode, the selected reference neighbors.
+#' @param reference A `Tumor2LineReference` object created by
+#'   [fit_tumor2line_reference()].
+#' @param new_query_expr Expression data for one or more new query samples.
+#' @param new_query_metadata Optional metadata for new query samples. Lineage
+#'   information is required for within-lineage prediction.
+#' @param new_query_input_scale Input scale: `"raw"` (TPM) or `"processed"`
+#'   (log2(TPM + 1)).
+#' @return A `Tumor2LinePrediction` object containing rankings for the new query
+#'   samples and optional known-pair evaluation.
 #' @export
 predict_tumor2line <- function(
     reference,
     new_query_expr,
     new_query_metadata = NULL,
-    method = c("population", "transfer"),
-    k = 5,
-    neighbor_epsilon = 1e-8) {
+    new_query_input_scale = c("raw", "processed")) {
 
   if (!inherits(reference, "Tumor2LineReference")) {
     stop("reference must be a Tumor2LineReference object.", call. = FALSE)
   }
 
-  method <- match.arg(method)
   projected <- project_new_query(
     reference = reference,
-    new_query_expr = new_query_expr
+    new_query_expr = new_query_expr,
+    new_query_input_scale = new_query_input_scale
   )
-
-  if (nrow(projected$scores) != 1) {
-    stop(
-      "predict_tumor2line() currently supports exactly one new query sample at a time.",
-      call. = FALSE
-    )
-  }
-
   new_metadata <- prepare_prediction_metadata(
     reference = reference,
     sample_ids = rownames(projected$scores),
     new_query_metadata = new_query_metadata
   )
 
-  if (method == "population") {
-    ranking <- predict_population_mode(
-      reference = reference,
-      projected = projected,
-      new_metadata = new_metadata
-    )
-    neighbors <- NULL
-  } else {
-    transfer <- predict_transfer_mode(
-      reference = reference,
-      projected = projected,
-      new_metadata = new_metadata,
-      k = k,
-      neighbor_epsilon = neighbor_epsilon
-    )
-    ranking <- transfer$ranking
-    neighbors <- transfer$neighbors
+  ranking <- predict_population_mode(
+    reference = reference,
+    projected = projected,
+    new_metadata = new_metadata
+  )
+  top_matches <- ranking[ranking$rank == 1L, , drop = FALSE]
+
+  gold_pairs <- data.frame(
+    PairID = character(), lineage = character(),
+    Query_ID = character(), CellLine_ID = character(),
+    stringsAsFactors = FALSE
+  )
+  if (!is.null(reference$reference_columns$pair_col)) {
+    query_pairs <- new_metadata[
+      !is.na(new_metadata$PairID) & new_metadata$PairID != "",
+      c("PairID", "SampleID", "lineage"),
+      drop = FALSE
+    ]
+    cellline_meta <- reference$input$metadata[
+      reference$input$metadata$SampleRole == "cellline" &
+        !is.na(reference$input$metadata$PairID) &
+        reference$input$metadata$PairID != "",
+      c("PairID", "SampleID", "lineage"),
+      drop = FALSE
+    ]
+    if (nrow(query_pairs) > 0 && nrow(cellline_meta) > 0) {
+      names(query_pairs) <- c("PairID", "Query_ID", "lineage")
+      names(cellline_meta) <- c("PairID", "CellLine_ID", "CellLine_lineage")
+      pair_match <- merge(query_pairs, cellline_meta, by = "PairID", all = FALSE)
+      if (nrow(pair_match) > 0) {
+        gold_pairs <- unique(data.frame(
+          PairID = pair_match$PairID,
+          lineage = pair_match$lineage,
+          Query_ID = pair_match$Query_ID,
+          CellLine_ID = pair_match$CellLine_ID,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
   }
 
-  top_matches <- ranking[
-    ranking$rank == 1L,
-    ,
-    drop = FALSE
-  ]
-
-  out <- list(
-    method = method,
+  prediction <- list(
+    method = "population",
     ranking = tibble::as_tibble(ranking),
     top_matches = tibble::as_tibble(top_matches),
-    neighbors = neighbors,
     query_scores = projected$scores,
     query_scores_raw = projected$scores_raw,
     query_metadata = new_metadata,
+    gold_pairs = gold_pairs,
     parameters = list(
-      method = method,
-      k = if (method == "transfer") as.integer(k) else NULL,
-      neighbor_epsilon = if (method == "transfer") neighbor_epsilon else NULL,
+      method = "population",
+      new_query_input_scale = match.arg(new_query_input_scale),
       candidate_scope = reference$parameters$candidate_scope,
-      distance = reference$parameters$distance
+      distance = reference$parameters$distance,
+      epsilon = reference$parameters$epsilon,
+      rho_query = reference$parameters$rho_query,
+      rho_cellline = reference$parameters$rho_cellline
     )
   )
-  class(out) <- c("Tumor2LinePrediction", "list")
-  out
+  class(prediction) <- c("Tumor2LinePrediction", "list")
+
+  if (nrow(gold_pairs) > 0) {
+    prediction$evaluation <- evaluate_tumor2line(prediction, gold_pairs)
+  } else {
+    prediction$evaluation <- NULL
+  }
+
+  prediction
 }
 
-#' Print a Tumor2Line single-query prediction
+#' Print a Tumor2Line population-mode prediction
 #'
 #' @param x A `Tumor2LinePrediction` object.
 #' @param ... Additional arguments passed to the print method. Currently unused.
 #' @return `x`, invisibly.
-#' @keywords internal
 #' @export
 print.Tumor2LinePrediction <- function(x, ...) {
-  cat("Tumor2Line single-query prediction\n")
-  cat("  Mode:            ", x$method, "\n", sep = "")
-  cat("  Query:           ", x$query_metadata$SampleID[1], "\n", sep = "")
-  cat("  Lineage:         ", x$query_metadata$lineage[1], "\n", sep = "")
-  cat("  Candidates:      ", nrow(x$ranking), "\n", sep = "")
-  if (identical(x$method, "transfer")) {
-    cat("  Reference k:     ", nrow(x$neighbors), "\n", sep = "")
+  cat("Tumor2Line population-mode prediction\n")
+  cat("  New queries:     ", nrow(x$query_metadata), "\n", sep = "")
+  cat("  Lineages:        ", length(unique(x$query_metadata$lineage)), "\n", sep = "")
+  cat("  Ranking rows:    ", nrow(x$ranking), "\n", sep = "")
+  if (!is.null(x$evaluation)) {
+    cat("\nKnown-pair evaluation:\n")
+    print(x$evaluation$summary, row.names = FALSE)
   }
   invisible(x)
 }

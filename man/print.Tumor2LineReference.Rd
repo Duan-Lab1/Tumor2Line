@@ -2,7 +2,7 @@
 % Please edit documentation in R/07_prediction.R
 \name{print.Tumor2LineReference}
 \alias{print.Tumor2LineReference}
-\title{Print a Tumor2Line reference}
+\title{Print a Tumor2Line reference cohort}
 \usage{
 \method{print}{Tumor2LineReference}(x, ...)
 }
@@ -15,6 +15,5 @@
 `x`, invisibly.
 }
 \description{
-Print a Tumor2Line reference
+Print a Tumor2Line reference cohort
 }
-\keyword{internal}

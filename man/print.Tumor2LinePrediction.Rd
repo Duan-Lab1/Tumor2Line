@@ -2,7 +2,7 @@
 % Please edit documentation in R/07_prediction.R
 \name{print.Tumor2LinePrediction}
 \alias{print.Tumor2LinePrediction}
-\title{Print a Tumor2Line single-query prediction}
+\title{Print a Tumor2Line population-mode prediction}
 \usage{
 \method{print}{Tumor2LinePrediction}(x, ...)
 }
@@ -15,6 +15,5 @@
 `x`, invisibly.
 }
 \description{
-Print a Tumor2Line single-query prediction
+Print a Tumor2Line population-mode prediction
 }
-\keyword{internal}

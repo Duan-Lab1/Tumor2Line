@@ -2,46 +2,35 @@
 % Please edit documentation in R/07_prediction.R
 \name{predict_tumor2line}
 \alias{predict_tumor2line}
-\title{Predict candidate cell lines for a new query}
+\title{Predict candidate cell lines for new query samples using population mode}
 \usage{
 predict_tumor2line(
   reference,
   new_query_expr,
   new_query_metadata = NULL,
-  method = c("population", "transfer"),
-  k = 5,
-  neighbor_epsilon = 1e-08
+  new_query_input_scale = c("raw", "processed")
 )
 }
 \arguments{
-\item{reference}{A `Tumor2LineReference` object.}
+\item{reference}{A `Tumor2LineReference` object created by
+[fit_tumor2line_reference()].}
 
-\item{new_query_expr}{Expression data for a single new query sample.}
+\item{new_query_expr}{Expression data for one or more new query samples.}
 
-\item{new_query_metadata}{Metadata for the new query sample. Required for
-within-lineage prediction.}
+\item{new_query_metadata}{Optional metadata for new query samples. Lineage
+information is required for within-lineage prediction.}
 
-\item{method}{Prediction strategy: `"population"` or `"transfer"`.}
-
-\item{k}{Number of similar reference queries used for transfer mode.}
-
-\item{neighbor_epsilon}{Small positive constant used for inverse-distance
-weighting in transfer mode.}
+\item{new_query_input_scale}{Input scale: `"raw"` (TPM) or `"processed"`
+(log2(TPM + 1)).}
 }
 \value{
-An object of class `Tumor2LinePrediction` containing the new-query
-  candidate ranking and, for transfer mode, the selected reference neighbors.
+A `Tumor2LinePrediction` object containing rankings for the new query
+  samples and optional known-pair evaluation.
 }
 \description{
-Projects a new query into a frozen Tumor2Line reference representation and
-predicts candidate cell lines using either full population-aware uOT
-recomputation (`method = "population"`) or nearest-reference ranking transfer
-(`method = "transfer"`).
-}
-\details{
-Population mode adds the projected query to the corresponding reference
-query population and reruns uOT without refitting variable genes, gene
-scaling, PCA or PC scaling. Transfer mode identifies molecularly similar
-reference queries and combines their existing `matching_probability` values
-using inverse-distance weights.
+Projects new query samples into the frozen molecular representation of a
+fitted Tumor2Line reference cohort, adds them to the corresponding query
+population and reruns uOT against the reference candidate cell-line
+population. The PCA transformation is frozen, but the query population used
+for uOT is updated to include the new samples.
 }

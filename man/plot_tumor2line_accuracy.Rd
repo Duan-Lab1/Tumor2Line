@@ -7,7 +7,7 @@
 plot_tumor2line_accuracy(x)
 }
 \arguments{
-\item{x}{A `Tumor2LineEvaluation` or evaluated `Tumor2LineResult`.}
+\item{x}{A `Tumor2LineEvaluation` or evaluated Tumor2Line result.}
 }
 \value{
 A ggplot object.

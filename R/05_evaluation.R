@@ -3,17 +3,15 @@
 #' Evaluate Tumor2Line using known query-cell-line pairs
 #'
 #' Computes query-level true-pair ranks and summary metrics including Top1
-#' accuracy, Top3 accuracy and mean reciprocal rank (MRR).
+#' accuracy, Top3 accuracy and mean reciprocal rank (MRR). Ground-truth pairs
+#' are used only after matching and are not required by the matching algorithm.
 #'
 #' @param result A `Tumor2LineResult`, `Tumor2LineReference`,
-#'   `Tumor2LinePrediction` object or a ranking data frame with `Query_ID`,
-#'   `CellLine_ID`, `rank` and `n_candidates` columns.
+#'   `Tumor2LinePrediction` object or ranking data frame.
 #' @param true_pairs Optional data frame containing `Query_ID` and `CellLine_ID`.
-#'   If omitted for a `Tumor2LineResult` or `Tumor2LineReference`, known pairs
-#'   stored in the prepared input object are used.
-#'
-#' @return An object of class `Tumor2LineEvaluation` containing query-level
-#'   true-pair ranks, overall performance and lineage-specific performance.
+#'   If omitted for a fitted result/reference, stored known pairs are used.
+#' @return A `Tumor2LineEvaluation` object containing query-level true-pair
+#'   ranks, overall performance and lineage-specific performance.
 #' @export
 evaluate_tumor2line <- function(result, true_pairs = NULL) {
   if (inherits(result, "Tumor2LineResult") || inherits(result, "Tumor2LineReference")) {
@@ -21,30 +19,19 @@ evaluate_tumor2line <- function(result, true_pairs = NULL) {
     if (is.null(true_pairs)) true_pairs <- result$input$gold_pairs
   } else if (inherits(result, "Tumor2LinePrediction")) {
     ranking <- result$ranking
+    if (is.null(true_pairs)) true_pairs <- result$gold_pairs
   } else {
     ranking <- as.data.frame(result)
   }
 
-  assert_columns(
-    ranking,
-    c("Query_ID", "CellLine_ID", "rank", "n_candidates"),
-    "ranking"
-  )
-
+  assert_columns(ranking, c("Query_ID", "CellLine_ID", "rank", "n_candidates"), "ranking")
   if (is.null(true_pairs)) {
-    stop(
-      "true_pairs is required when known pairs are not stored in result.",
-      call. = FALSE
-    )
+    stop("true_pairs is required when known pairs are not stored in result.", call. = FALSE)
   }
 
   true_pairs <- as.data.frame(true_pairs, check.names = FALSE)
   assert_columns(true_pairs, c("Query_ID", "CellLine_ID"), "true_pairs")
-
-  pair_cols <- intersect(
-    c("Query_ID", "CellLine_ID", "PairID", "lineage"),
-    colnames(true_pairs)
-  )
+  pair_cols <- intersect(c("Query_ID", "CellLine_ID", "PairID", "lineage"), colnames(true_pairs))
   pair_ref <- unique(true_pairs[, pair_cols, drop = FALSE])
 
   matched <- merge(
@@ -53,21 +40,12 @@ evaluate_tumor2line <- function(result, true_pairs = NULL) {
     by = c("Query_ID", "CellLine_ID"),
     all = FALSE
   )
-
   if (nrow(matched) == 0) {
-    stop(
-      "No known query-cell-line pairs were found in the ranking output.",
-      call. = FALSE
-    )
+    stop("No known query-cell-line pairs were found in the ranking output.", call. = FALSE)
   }
 
-  matched <- matched[
-    order(matched$Query_ID, matched$rank, matched$CellLine_ID),
-    ,
-    drop = FALSE
-  ]
-  best_index <- !duplicated(matched$Query_ID)
-  pair_ranks <- matched[best_index, , drop = FALSE]
+  matched <- matched[order(matched$Query_ID, matched$rank, matched$CellLine_ID), , drop = FALSE]
+  pair_ranks <- matched[!duplicated(matched$Query_ID), , drop = FALSE]
   pair_ranks$True_CellLine_ID <- pair_ranks$CellLine_ID
   pair_ranks$true_rank <- as.integer(pair_ranks$rank)
   pair_ranks$Top1 <- pair_ranks$true_rank == 1L
@@ -84,10 +62,9 @@ evaluate_tumor2line <- function(result, true_pairs = NULL) {
     "lineage", "Query_ID", "True_CellLine_ID", "true_rank", "Top1", "Top3",
     "reciprocal_rank", "normalized_rank", "rank_percentile", "n_candidates",
     "transport_mass", "matching_probability", "query_total_mass",
-    "cellline_total_mass", "prediction_score", "transfer_score", "cost"
+    "cellline_total_mass", "cost"
   )
-  keep <- intersect(keep, colnames(pair_ranks))
-  pair_ranks <- pair_ranks[, keep, drop = FALSE]
+  pair_ranks <- pair_ranks[, intersect(keep, colnames(pair_ranks)), drop = FALSE]
 
   summary <- tibble::tibble(
     n_query = length(unique(pair_ranks$Query_ID)),
@@ -125,11 +102,8 @@ evaluate_tumor2line <- function(result, true_pairs = NULL) {
 
 #' Print a Tumor2Line evaluation
 #'
-#' Prints the summary statistics from a `Tumor2LineEvaluation` object.
-#'
 #' @param x A `Tumor2LineEvaluation` object.
 #' @param ... Additional arguments passed to the print method. Currently unused.
-#'
 #' @return `x`, invisibly.
 #' @export
 print.Tumor2LineEvaluation <- function(x, ...) {

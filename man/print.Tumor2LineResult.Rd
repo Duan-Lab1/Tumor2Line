@@ -15,7 +15,5 @@
 `x`, invisibly.
 }
 \description{
-Prints a concise summary of a fitted `Tumor2LineResult` object, including
-the number of query samples, candidate cell lines, selected genes and PCs,
-candidate scope, and known-pair evaluation when available.
+Print a Tumor2Line result
 }

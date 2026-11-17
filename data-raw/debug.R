@@ -1,3 +1,7 @@
+# Tumor2Line v0.1.3: build the frozen Celligner reference PCA and check package
+# Run from the Tumor2Line package root after placing full input matrices in
+# data-raw/raw/. package.R belongs in R/; this script belongs in data-raw/.
+
 # build package
 roxygen2::roxygenise(getwd())
 devtools::check(document = FALSE)
@@ -6,118 +10,66 @@ devtools::build(binary = FALSE, manual = TRUE, quiet = FALSE)
 # build pkgdown
 pkgdown::build_site()
 
-# PDMR example-data preparation ----------------------------------------------
+library(data.table)
+library(tidyverse)
 library(Tumor2Line)
 
-raw_data_dir <- "data-raw/raw"
-extdata_dir <- "inst/extdata"
-
-dir.create(extdata_dir, recursive = TRUE, showWarnings = FALSE)
-
-query_file <- file.path(
-  raw_data_dir,
-  "M3_paired_tumor_gene_expression.tsv"
-)
-cellline_file <- file.path(
-  raw_data_dir,
-  "M3_paired_cellline_gene_expression.tsv"
-)
-phenotype_file <- file.path(
-  raw_data_dir,
-  "M3_paired_phenotype.tsv"
+raw_dir <- file.path("data-raw", "raw")
+required_expression_files <- c(
+  "Celligner_tumor_gene_expression.tsv",
+  "Celligner_cellline_gene_expression.tsv",
+  "Celligner_phenotype.tsv",
+  "PDMR_tumor_gene_expression.tsv",
+  "PDMR_cellline_gene_expression.tsv",
+  "PDMR_phenotype.tsv"
 )
 
-stopifnot(file.exists(query_file))
-stopifnot(file.exists(cellline_file))
-stopifnot(file.exists(phenotype_file))
-
-phenotype <- utils::read.delim(
-  phenotype_file,
+celligner_tumor <- data.table::fread(
+  file.path(raw_dir, "Celligner_tumor_gene_expression.tsv"),
+  data.table = FALSE,
   check.names = FALSE,
-  stringsAsFactors = FALSE
-) |>
-  dplyr::filter(model_lineage %in% c("COAD", "HNSC", "OV", "PAAD", "SKCM", "UCEC"))
+  colClasses = list(character = "sampleID")
+)
 
-table(phenotype$model_lineage, phenotype$SampleType)
-phenotype$lineage <- phenotype$model_lineage
-
-query_expr <- utils::read.delim(
-  query_file,
+celligner_cellline <- data.table::fread(
+  file.path(raw_dir, "Celligner_cellline_gene_expression.tsv"),
+  data.table = FALSE,
   check.names = FALSE,
-  stringsAsFactors = FALSE
-) |>
-  dplyr::filter(SampleID %in% phenotype$SampleID)
-cellline_expr <- utils::read.delim(
-  cellline_file,
+  colClasses = list(character = "sampleID")
+)
+
+celligner_phenotype <- data.table::fread(
+  file.path(raw_dir, "Celligner_phenotype.tsv"),
+  data.table = FALSE,
   check.names = FALSE,
-  stringsAsFactors = FALSE
-) |>
-  dplyr::filter(SampleID %in% phenotype$SampleID)
+  colClasses = list(character = "sampleID")
+)
 
-
-cat("\nQuery expression:\n")
-print(dim(query_expr))
-
-cat("\nCell-line expression:\n")
-print(dim(cellline_expr))
-
-cat("\nPhenotype:\n")
-print(dim(phenotype))
-print(colnames(phenotype))
-
-prepared <- Tumor2Line::prepare_tumor2line_data(
-  query_expr = query_expr,
-  cellline_expr = cellline_expr,
-  phenotype = phenotype,
-  sample_id_col = "SampleID",
-  pair_col = "PairID",
+celligner_reference <- build_reference_pca(
+  tumor_expr = celligner_tumor,
+  cellline_expr = celligner_cellline,
+  phenotype = celligner_phenotype,
+  sample_id_col = "sampleID",
+  type_col = "type",
   lineage_col = "lineage",
-  sample_type_col = "SampleClass",
-  query_type = "tumor",
-  min_mean_tpm = 0.1,
-  min_detected_fraction = 0.1
+  tumor_label = "tumor",
+  cellline_label = "CL",
+  input_scale = "processed",
+  n_variable_genes = 10000,
+  pca_variance_threshold = 0.90,
+  scale_genes = TRUE
 )
 
-PDMR_tumor_expr <- query_expr
-PDMR_cellline_expr <- cellline_expr
-PDMR_phenotype <- phenotype
-PDMR_pairs <- prepared$gold_pairs
-
-utils::write.table(
-  PDMR_tumor_expr,
-  file.path(extdata_dir, "PDMR_tumor_expr.tsv"),
-  sep = "\t",
-  quote = FALSE,
-  row.names = FALSE
-)
-utils::write.table(
-  PDMR_cellline_expr,
-  file.path(extdata_dir, "PDMR_cellline_expr.tsv"),
-  sep = "\t",
-  quote = FALSE,
-  row.names = FALSE
-)
-utils::write.table(
-  PDMR_phenotype,
-  file.path(extdata_dir, "PDMR_phenotype.tsv"),
-  sep = "\t",
-  quote = FALSE,
-  row.names = FALSE
-)
-utils::write.table(
-  PDMR_pairs,
-  file.path(extdata_dir, "PDMR_pairs.tsv"),
-  sep = "\t",
-  quote = FALSE,
-  row.names = FALSE
+saveRDS(
+  celligner_reference,
+  file.path(raw_dir, "Celligner_reference_pca.rds"),
+  compress = "xz"
 )
 
-cat("\n============================================================\n")
-cat("Tumor2Line PDMR example data generated successfully\n")
-cat("============================================================\n")
-cat("Query samples:    ", length(prepared$query_ids), "\n", sep = "")
-cat("Cell lines:       ", length(prepared$cellline_ids), "\n", sep = "")
-cat("Common genes:     ", length(prepared$common_genes), "\n", sep = "")
-cat("Known pairs:      ", nrow(prepared$gold_pairs), "\n", sep = "")
-cat("Output directory: ", extdata_dir, "\n", sep = "")
-cat("============================================================\n")
+message(
+  "Celligner reference PCA saved to inst/extdata/Celligner_reference_pca.rds. ",
+  "Selected genes: ", length(celligner_reference$representation$selected_genes),
+  "; selected PCs: ", celligner_reference$representation$n_pcs,
+  "; reference samples: ", celligner_reference$parameters$n_reference_samples,
+  "."
+)

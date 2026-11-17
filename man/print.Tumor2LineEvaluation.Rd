@@ -15,5 +15,5 @@
 `x`, invisibly.
 }
 \description{
-Prints the summary statistics from a `Tumor2LineEvaluation` object.
+Print a Tumor2Line evaluation
 }

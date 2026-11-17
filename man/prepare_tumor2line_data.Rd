@@ -2,7 +2,7 @@
 % Please edit documentation in R/01_data.R
 \name{prepare_tumor2line_data}
 \alias{prepare_tumor2line_data}
-\title{Prepare transcriptomic data for Tumor2Line}
+\title{Prepare query and cell-line transcriptomic data}
 \usage{
 prepare_tumor2line_data(
   query_expr,
@@ -14,57 +14,47 @@ prepare_tumor2line_data(
   sample_type_col = NULL,
   query_type = "query",
   cellline_type = "cellline",
-  min_mean_tpm = 0.1,
-  min_detected_fraction = 0.1
+  query_input_scale = c("raw", "processed"),
+  cellline_input_scale = c("raw", "processed")
 )
 }
 \arguments{
-\item{query_expr}{Expression data for the query population. Samples must be
-rows and genes must be columns. A data frame may contain a sample-ID column;
-a matrix may use sample IDs as row names.}
+\item{query_expr}{Query expression data. Samples must be rows and genes
+must be columns. A data frame may contain a sample-ID column; a matrix
+may use sample IDs as row names.}
 
-\item{cellline_expr}{Candidate cell-line expression data in the same
-orientation as `query_expr`.}
+\item{cellline_expr}{Cell-line expression data in the same orientation.}
 
 \item{phenotype}{Optional data frame containing sample annotations.}
 
-\item{sample_id_col}{Name of the sample-ID column in `phenotype`.}
+\item{sample_id_col}{Name of the sample-ID column.}
 
-\item{pair_col}{Optional name of a known pairing column. Set to `NULL` when
-known query-cell-line pairs are unavailable.}
+\item{pair_col}{Name of the known pairing column. Set to NULL if unavailable.}
 
-\item{lineage_col}{Optional name of the cancer-lineage column. Set to `NULL`
-when lineage information is unavailable.}
+\item{lineage_col}{Name of the cancer-lineage column. Set to NULL if unavailable.}
 
-\item{sample_type_col}{Optional name of a column describing biological sample
-type, such as tumor, PDO, PDX, organoid, or cell line.}
+\item{sample_type_col}{Name of the biological sample-type column.}
 
-\item{query_type}{Default biological label assigned to query samples when
-`sample_type_col` is unavailable.}
+\item{query_type}{Biological type assigned to query samples.}
 
-\item{cellline_type}{Default biological label assigned to candidate cell-line
-samples when `sample_type_col` is unavailable.}
+\item{cellline_type}{Biological type assigned to candidate cell lines.}
 
-\item{min_mean_tpm}{Minimum mean TPM required for a gene to be eligible for
-variable-gene selection.}
+\item{query_input_scale}{Expression scale of query data: "raw" (TPM)
+or "processed" (log2(TPM + 1)).}
 
-\item{min_detected_fraction}{Minimum fraction of samples with TPM > 0.}
+\item{cellline_input_scale}{Expression scale of cell-line data: "raw" (TPM)
+or "processed" (log2(TPM + 1)).}
 }
 \value{
-An object of class `Tumor2LineInput` containing standardized metadata,
-  TPM and log-expression matrices, gene statistics, sample IDs and optional
+An object of class Tumor2LineInput containing standardized
+  metadata, log-expression matrix, gene statistics, sample IDs and
   known query-cell-line pairs.
 }
 \description{
-Standardizes the two expression populations used by Tumor2Line: a query
-population and a candidate cell-line population. The query population can
-contain patient tumors, PDOs, PDXs, organoids, or other tumor-derived
-samples. Known query-cell-line pairs are not required for Tumor2Line
-matching and are used only for optional downstream evaluation.
-}
-\details{
-Expression matrices are harmonized to shared genes, transformed as
-log2(TPM + 1), and summarized for variable-gene selection. Sample roles are
-inferred directly from the two expression matrices rather than phenotype
-labels.
+Standardizes query expression, cell-line expression and optional phenotype
+metadata. Samples without matching phenotype annotations are removed when
+phenotype is supplied. Expression matrices are harmonized to common genes,
+transformed to log2(TPM + 1), and summarized for variable-gene selection.
+Known query-cell-line pairs are constructed when pairing information
+is available.
 }

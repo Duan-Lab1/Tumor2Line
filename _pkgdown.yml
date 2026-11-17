@@ -1,36 +1,36 @@
-url: https://github.com/Duan-Lab1/Tumor2Line
+url: https://duan-lab1.github.io/Tumor2Line/
 
 template:
   bootstrap: 5
 
 reference:
-  - title: "Data Preparation"
+  - title: "Data Preparation and Representation"
     desc: >
-      Functions for preparing query and candidate cell-line transcriptomic data
+      Functions for harmonizing expression data and constructing transcriptomic representations
     contents:
       - prepare_tumor2line_data
       - build_scaled_pca_representation
+      - build_reference_pca
+      - project_to_reference_pca
+      - apply_lineage_crosswalk
   - title: "Population-Aware Matching"
     desc: >
-      Core functions for query-to-cell-line matching with unbalanced optimal transport
+      Core cohort-specific and external-reference tumor-to-cell-line matching functions
     contents:
       - run_tumor2line
+      - run_tumor2line_with_reference
       - run_uot_matching
       - get_top_matches
-  - title: "Single-Query Prediction"
+  - title: "New-Query Population Prediction"
     desc: >
-      Functions for building reusable reference cohorts and predicting candidate cell lines for newly arriving query samples
+      Functions for adding new query samples to an existing query cohort and rerunning population-aware matching
     contents:
       - fit_tumor2line_reference
       - predict_tumor2line
   - title: "Evaluation"
-    desc: >
-      Functions for evaluating matching performance when known query-cell-line pairs are available
     contents:
       - evaluate_tumor2line
   - title: "Visualization"
-    desc: >
-      Functions for visualizing Tumor2Line results
     contents:
       - plot_tumor2line_accuracy
       - plot_true_pair_ranks
@@ -39,10 +39,13 @@ reference:
     contents:
       - print.Tumor2LineResult
       - print.Tumor2LineEvaluation
+      - print.Tumor2LineReference
+      - print.Tumor2LinePrediction
 
 articles:
-  - title: "Tutorial"
+  - title: "Tutorials"
     navbar: ~
     contents:
       - Tumor2Line-tutorial
-      - Tumor2Line-single-query-prediction
+      - Tumor2Line-reference-vs-cohort-pca
+      - Tumor2Line-tumor-only

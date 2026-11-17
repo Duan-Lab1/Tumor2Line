@@ -1,13 +1,13 @@
 ---
-title: "Tumor2Line Tutorial"
-author: "Tumor2Line developers"
+title: "Tumor2Line: Standard demo Population Matching"
+author: "Hua Zou"
 date: "`r Sys.Date()`"
 output:
   rmarkdown::html_vignette:
     toc: true
     toc_depth: 3
 vignette: >
-  %\VignetteIndexEntry{Tumor2Line Tutorial}
+  %\VignetteIndexEntry{Tumor2Line: Standard demo Population Matching}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -16,84 +16,94 @@ vignette: >
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
-  fig.width = 5,
-  fig.height = 4
+  fig.width = 6.5,
+  fig.height = 4.5
 )
 ```
 
-## 1. Overview
+## Introduction
 
-**Tumor2Line** matches a query population to candidate cancer cell lines using transcriptomic similarity at the **population level**. Query samples can be patient tumors, PDOs, PDXs, organoids, or other tumor-derived models. The default molecular representation uses scaled PCA, followed by population-aware unbalanced optimal transport (uOT) matching.
+**Tumor2Line** reframes cancer cell-line selection as a **population-aware alignment problem** rather than a conventional pairwise nearest-neighbor search. Because tumors and cell lines represent heterogeneous, incompletely overlapping biological landscapes, independent pairwise ranking fails to capture the broader population context.
+
+The package provides a two-component workflow:
+
+1. **Shared Representation**: Tumor and lineage-compatible cell-line transcriptomes are projected into a common low-dimensional PCA space. The PCA is built from large-scale reference datasets (TCGA, TARGET, Treehouse, CCLE), enabling stable, reusable projection for new samples—especially useful when only a few patient tumors are available. PC scores are standardized to unit variance to balance the contributions of high-variance microenvironmental signals and subtle biological differences.
+
+2. **Population-Aware Matching via uOT**: Unbalanced optimal transport (uOT) aligns tumor and cell-line populations in the shared space. Unlike independent pairwise similarity, uOT leverages distributional relationships between populations and relaxes strict mass-conservation constraints to accommodate incomplete overlap. The resulting transport plan yields ranked candidate cell lines per tumor.
+
+**Validation**: A multi-level framework evaluates Tumor2Line via recovery of experimentally matched pairs, molecular-state fidelity, and independent functional validation using drug responses and CRISPR gene dependencies.
 
 ```{r, echo=FALSE, out.width="80%", out.height="80%", dpi=600, fig.align="center", fig.cap="The Overview of Tumor2Line"}
 knitr::include_graphics("./figures/workflow.jpg")
 ```
 
-This tutorial uses a small PDMR-format example in which the query samples are tumors and known tumor-cell line pairs are available. The pairing information is used only for evaluation and is **not required** for Tumor2Line matching.
+This tutorial demonstrates the standard cohort-specific workflow using the 103 one-to-one demo tumor–cell-line pairs. The demo expression matrices are TPM and are transformed to `log2(TPM + 1)` exactly once. Known `PairID` values are used only for evaluation after matching; they are not used to construct the PCA representation or the uOT transport plan.
 
-The tutorial demonstrates the complete workflow:
+The full demo expression matrices are large and are not bundled in this source archive. The code chunks in this tutorial run when the complete files have been copied to `inst/extdata/` by `data-raw/debug.R`. Until then, the executable chunks are skipped during vignette building.
 
-1. read the bundled example files directly from `inst/extdata`;
-2. inspect and preprocess the data;
-3. construct the scaled-PCA representation;
-4. run `run_tumor2line()`;
-5. interpret query-specific cell-line rankings;
-6. evaluate known pairs using Top1, Top3, MRR and true-pair rank;
-7. visualize the main results;
-8. adapt the workflow to unpaired tumors, PDOs, PDXs, or other query populations.
-
-## 2. Load Tumor2Line
+## Load Tumor2Line
 
 ```{r}
 library(Tumor2Line)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
 ```
 
-## 3. Input data
+## Input data
 
-### 3.1 Three logical input types
+### Three logical input types
 
-The bundled PDMR-format example uses:
+The demo data workflow uses:
 
 ```text
-PDMR_tumor_expr.tsv
-PDMR_cellline_expr.tsv
-PDMR_phenotype.tsv
+demo_tumor_expr.tsv
+demo_cellline_expr.tsv
+demo_phenotype.tsv
 ```
 
-The two expression tables have samples in rows. `SampleID` identifies each sample and the remaining columns contain non-negative gene-expression values. In this example, the phenotype table contains:
+Both expression tables contain samples in rows and genes in columns. The phenotype table contains:
 
 - `SampleID`: sample identifier;
-- `PairID`: known query-cell line pair identifier used only for evaluation;
-- `SampleClass`: biological sample type (`tumor` or `cellline` in this example);
-- `lineage`: cancer lineage used to define the default candidate pool.
+- `PairID`: known tumor–cell-line pair identifier, used only for evaluation;
+- `SampleClass`: `tumor` or `cellline`;
+- `model_lineage`: harmonized lineage used for within-lineage candidate matching.
 
-Tumor2Line does not require `PairID` or `SampleClass` for matching. The roles `query` and `cellline` are inferred from the two expression inputs.
-
-### 3.2 Read the bundled example
+### Read the bundled demo data
 
 ```{r}
-query_expr_path <- system.file("extdata", "PDMR_tumor_expr.tsv", package = "Tumor2Line")
-cell_expr_path <- system.file("extdata", "PDMR_cellline_expr.tsv", package = "Tumor2Line")
-phenotype_path <- system.file("extdata", "PDMR_phenotype.tsv", package = "Tumor2Line")
+query_expr_path <- system.file(
+  "extdata", "demo_tumor_expr.tsv", package = "Tumor2Line"
+)
+
+cellline_expr_path <- system.file(
+  "extdata", "demo_cellline_expr.tsv", package = "Tumor2Line"
+)
+
+phenotype_path <- system.file(
+  "extdata", "demo_phenotype.tsv", package = "Tumor2Line"
+)
+
+query_expr <- data.table::fread(query_expr_path)
+cellline_expr <- data.table::fread(cellline_expr_path)
+phenotype <- data.table::fread(phenotype_path)
 ```
 
-```{r}
-query_expr <- utils::read.delim(query_expr_path, check.names = FALSE, stringsAsFactors = FALSE)
-cellline_expr <- utils::read.delim(cell_expr_path, check.names = FALSE, stringsAsFactors = FALSE)
-phenotype <- utils::read.delim(phenotype_path, check.names = FALSE, stringsAsFactors = FALSE)
-```
-
-The first column of each expression table is `SampleID`:
+Inspect the input dimensions and annotations:
 
 ```{r}
+dim(query_expr)
+dim(cellline_expr)
+dim(phenotype)
 query_expr[1:3, 1:6]
 cellline_expr[1:3, 1:6]
-head(phenotype)
+utils::head(phenotype)
+table(phenotype$model_lineage, phenotype$SampleClass)
 ```
 
-## 4. Data preprocessing
+## Data preparation
 
-`prepare_tumor2line_data()` converts the expression populations and optional metadata into the internal structure used throughout the package.
+`prepare_tumor2line_data()` harmonizes common genes, converts raw TPM to `log2(TPM + 1)`, checks sample metadata and constructs known pairs when `PairID` is supplied. Genes are ranked by their standard deviation across the combined log-expression matrix; the default workflow retains the top 10,000 variable genes. Mean TPM and detected fraction are not used as default filtering criteria.
 
 ```{r}
 prepared <- prepare_tumor2line_data(
@@ -102,69 +112,50 @@ prepared <- prepare_tumor2line_data(
   phenotype = phenotype,
   sample_id_col = "SampleID",
   pair_col = "PairID",
-  lineage_col = "lineage",
+  lineage_col = "model_lineage",
   sample_type_col = "SampleClass",
   query_type = "tumor",
-  min_mean_tpm = 0.1,
-  min_detected_fraction = 0.1
+  cellline_type = "cellline",
+  query_input_scale = "raw",
+  cellline_input_scale = "raw"
 )
-```
 
-The preprocessing step:
-
-1. intersects genes shared by the query and cell-line populations;
-2. verifies that expression values are numeric, finite and non-negative;
-3. generates `log2(TPM + 1)` expression;
-4. assigns algorithmic roles (`query` and `cellline`) from the two expression inputs;
-5. attaches optional lineage, sample-type and pairing annotations;
-6. constructs known pairs only when `pair_col` is supplied.
-
-```{r}
 prepared$cohort_summary
-head(prepared$metadata)
-```
-
-Because the PDMR example contains known pairs, `prepared$gold_pairs` is available:
-
-```{r}
 head(prepared$gold_pairs)
 ```
 
-For an unpaired dataset, use `pair_col = NULL`. Tumor2Line matching remains fully available; only ground-truth evaluation is omitted.
+## Scaled-PCA molecular representation
 
-## 5. Scaled-PCA molecular representation
+The standard demo representation follows this sequence:
 
-Tumor2Line constructs a shared molecular space across the query and cell-line populations.
+```text
+Raw TPM
+  -> log2(TPM + 1)
+  -> calculate gene-wise SD on log2(TPM + 1)
+  -> select the 10,000 genes with the largest SD
+  -> joint gene-wise centering and scaling
+  -> PCA
+  -> retain the smallest number of PCs reaching 90% cumulative variance
+  -> PC-wise scaling
+```
+
+The PC count is determined by the variance threshold.
 
 ```{r}
 representation <- build_scaled_pca_representation(
   input = prepared,
   n_variable_genes = 10000,
   pca_variance_threshold = 0.90,
-  max_pcs = NULL
+  scale_genes = TRUE
 )
 
 representation$n_pcs
-head(representation$variance)
+utils::tail(representation$variance, 10)
 ```
 
-The default representation follows:
+## Run Tumor2Line
 
-```text
-TPM
-  -> log2(TPM + 1)
-  -> filter / select variable genes
-  -> joint gene-wise scaling
-  -> PCA
-  -> choose PCs reaching 90% cumulative variance
-  -> z-score retained PC scores
-```
-
-With `max_pcs = NULL`, the number of retained PCs is determined by `pca_variance_threshold`. A finite `max_pcs` can be supplied only when an explicit upper limit is desired.
-
-## 6. Run Tumor2Line
-
-For most users, `run_tumor2line()` is the main entry point. It runs preprocessing, scaled PCA, uOT matching, ranking and optional known-pair evaluation in one call.
+`run_tumor2line()` is the main entry point for cohort-specific analysis. It runs data preparation, scaled PCA, lineage-aware uOT matching, candidate ranking and optional known-pair evaluation.
 
 ```{r}
 result <- run_tumor2line(
@@ -173,236 +164,112 @@ result <- run_tumor2line(
   phenotype = phenotype,
   sample_id_col = "SampleID",
   pair_col = "PairID",
-  lineage_col = "lineage",
+  lineage_col = "model_lineage",
   sample_type_col = "SampleClass",
   query_type = "tumor",
+  cellline_type = "cellline",
+  query_input_scale = "raw",
+  cellline_input_scale = "raw",
   n_variable_genes = 10000,
   pca_variance_threshold = 0.90,
-  max_pcs = NULL,
   candidate_scope = "within_lineage",
   distance = "euclidean",
   epsilon = 0.1,
   rho_query = 1,
-  rho_cellline = 1
+  rho_cellline = 1,
+  max_iter = 5000,
+  tolerance = 1e-8
 )
 
 result
 ```
 
-The parameters are explicit so that the analysis is reproducible. Tumor2Line does not tune these parameters against the known PDMR pairs.
+The default Euclidean cost is the mean squared L2 distance divided by the number of retained PCs. The cost matrix is normalized by its median positive value before uOT.
 
-## 7. Understand the result object
-
-A `Tumor2LineResult` contains:
+## Understand the result object
 
 ```{r}
 names(result)
-```
-
-The main components are:
-
-- `ranking`: all query-cell-line candidate combinations and their ranks;
-- `top_matches`: the rank-1 cell line for each query;
-- `input`: standardized expression data and metadata;
-- `representation`: scaled-PCA representation and PCA information;
-- `parameters`: parameters used in the analysis;
-- `evaluation`: known-pair evaluation when ground truth is available.
-
-### 7.1 Candidate ranking
-
-```{r}
 head(result$ranking)
-```
-
-Important columns are:
-
-- `Query_ID`: focal query sample;
-- `CellLine_ID`: candidate cell line;
-- `transport_mass`: raw pair-specific mass assigned by the uOT transport plan. It represents the amount of transport allocated between a query and a candidate cell line before query-wise normalization;
-- `matching_probability`: row-normalized transport mass assigned by uOT;
-- `cost`: molecular distance used by uOT;
-- `rank`: query-specific candidate rank;
-- `n_candidates`: size of the candidate pool.
-
-For each query, **`rank = 1` is the highest-priority candidate**.
-
-### 7.2 Rank-1 matches
-
-```{r}
 result$top_matches
 ```
 
-### 7.3 Top candidates for each query
+Important ranking columns are:
+
+- `Query_ID`: focal tumor;
+- `CellLine_ID`: candidate cell line;
+- `transport_mass`: raw uOT coupling mass assigned to this tumor–cell-line pair;
+- `matching_probability`: transport mass normalized across all candidates for the same tumor;
+- `cost`: normalized molecular distance;
+- `rank`: tumor-specific candidate rank;
+- `n_candidates`: number of candidate cell lines in the matching pool.
+
+`transport_mass` is the raw mass in the transport plan. `matching_probability` is a row-normalized relative weight used for ranking; it is not a calibrated clinical probability.
 
 ```{r}
 top5 <- get_top_matches(result, n = 5)
-head(top5, 10)
-```
+utils::head(top5, 10)
 
-For a single query:
-
-```{r}
 example_query <- result$input$query_ids[1]
 get_top_matches(result, n = 5, query_id = example_query)
 ```
 
-## 8. Why population context matters
+## Evaluate known demo pairs
 
-A pairwise method such as Pearson correlation scores each query-cell line pair independently. In contrast, uOT estimates a transport plan for the query and candidate cell-line populations jointly. Therefore, the ranking for one query is informed by the population-level structure of the matching problem.
-
-When lineage information is available, Tumor2Line can perform joint matching within lineage:
-
-```text
-Queries from one lineage
-        +
-Candidate cell lines from the same lineage
-        -> scaled-PCA distance matrix
-        -> uOT transport plan
-        -> query-specific cell-line rankings
-```
-
-Use `candidate_scope = "global"` when lineage information is unavailable or when a global candidate pool is desired.
-
-## 9. Evaluate known PDMR pairs
-
-The bundled PDMR-format example contains known pairs, so the true paired cell line can be located in each query's ranking.
+The true demo pairs are not used during matching. They are used after ranking to calculate recovery metrics.
 
 ```{r}
 evaluation <- result$evaluation
 evaluation$summary
+evaluation$lineage
+head(evaluation$pair_ranks)
 ```
 
 The principal metrics are:
 
-- **Top1 accuracy**: proportion of queries for which the known paired cell line has `true_rank = 1`;
-- **Top3 accuracy**: proportion with `true_rank <= 3`;
-- **MRR**: mean reciprocal rank, `mean(1 / true_rank)`;
-- **true-pair rank**: rank of the known paired cell line for each query.
+- **Top1 accuracy**: fraction of tumors whose known paired cell line ranks first;
+- **Top3 accuracy**: fraction whose known paired cell line appears within the top three;
+- **MRR**: mean reciprocal rank of the known paired cell line;
+- **True-pair rank**: rank of the known paired cell line for each tumor.
 
-### 9.1 Query-level true-pair ranks
+## Visualization
 
-```{r}
-head(evaluation$pair_ranks)
-```
+### Top1, Top3 and MRR
 
-Each row corresponds to one query. `Top1` and `Top3` are logical indicators derived from `true_rank`.
-
-### 9.2 Performance by lineage
-
-```{r}
-evaluation$lineage
-```
-
-This is useful when candidate-pool sizes and query numbers differ among lineages.
-
-## 10. Visualization
-
-### 10.1 Top1, Top3 and MRR
-
-```{r fig-accuracy}
+```{r fig-accuracy, fig.alt="Bar plot showing Top1 accuracy, Top3 accuracy and mean reciprocal rank for demo known tumor-cell-line pairs."}
 plot_tumor2line_accuracy(result)
 ```
 
-### 10.2 True-pair rank distribution
+### True-pair rank distribution
 
-```{r fig-rank}
+```{r fig-rank, fig.alt="Histogram showing the ranking positions of known demo paired cell lines."}
 plot_true_pair_ranks(result)
 ```
 
-Lower true-pair ranks indicate better recovery. Rank 1 means Tumor2Line selected the known paired cell line as its first recommendation.
+### Candidate cell lines for one tumor
 
-### 10.3 Top candidates for one query
-
-```{r fig-top-matches}
+```{r fig-top-matches, fig.alt="Bar plot showing the top-ranked candidate cell lines and their row-normalized transport masses for one demo tumor."}
 plot_top_matches(result, query_id = example_query, n = 5)
 ```
 
-This plot is often the most directly useful result for a new query sample because it displays the top candidate experimental models and their relative matching probabilities.
+## Using unpaired data
 
-## 11. Using your own data
-
-### 11.1 Unpaired tumor samples
-
-Known pairs are not required:
+For a new dataset without known pairs, set `pair_col = NULL`. Pairing information is not required for matching; only the optional ground-truth evaluation is unavailable.
 
 ```r
-query_expr <- read.delim("tumor_gene_expression.tsv", check.names = FALSE)
-cellline_expr <- read.delim("cellline_gene_expression.tsv", check.names = FALSE)
-phenotype <- read.delim("phenotype.tsv", check.names = FALSE)
-
-result <- run_tumor2line(
+unpaired_result <- run_tumor2line(
   query_expr = query_expr,
   cellline_expr = cellline_expr,
   phenotype = phenotype,
   sample_id_col = "SampleID",
   pair_col = NULL,
   lineage_col = "model_lineage",
-  query_type = "tumor",
-  candidate_scope = "within_lineage"
-)
-
-get_top_matches(result, n = 5)
-```
-
-### 11.2 PDO or other query populations
-
-The first population does not need to be a tumor population:
-
-```r
-result <- run_tumor2line(
-  query_expr = pdo_expr,
-  cellline_expr = cellline_expr,
-  phenotype = metadata,
-  sample_id_col = "SampleID",
-  lineage_col = "lineage",
-  query_type = "PDO",
-  candidate_scope = "within_lineage"
+  query_input_scale = "raw",
+  cellline_input_scale = "raw"
 )
 ```
 
-### 11.3 No metadata or lineage information
-
-A global analysis can be run using expression data alone:
-
-```r
-result <- run_tumor2line(
-  query_expr = query_expr,
-  cellline_expr = cellline_expr,
-  phenotype = NULL,
-  candidate_scope = "global"
-)
-```
-
-In this setting `result$evaluation` is `NULL` because no ground-truth pairing information was supplied.
-
-## 12. Full PDMR data preparation for package development
-
-The package developer workflow is kept in:
-
-```text
-data-raw/debug.R
-```
-
-Place the three original files in `data-raw/raw/`:
-
-```text
-M3_paired_tumor_gene_expression.tsv
-M3_paired_cellline_gene_expression.tsv
-M3_paired_phenotype.tsv
-```
-
-Running `data-raw/debug.R` validates and standardizes them and writes the four development outputs under `inst/extdata/`:
-
-```text
-PDMR_tumor_expr.tsv
-PDMR_cellline_expr.tsv
-PDMR_phenotype.tsv
-PDMR_pairs.tsv
-```
-
-The tutorial itself reads the bundled example files directly with `system.file()` and does not depend on a separate package I/O helper function.
-
-## 13. Session information
+## Session information
 
 ```{r}
 sessionInfo()

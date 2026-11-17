@@ -1,3 +1,8 @@
+# Tumor2Line 0.1.3
+
+* Added a reusable external reference PCA workflow through `build_reference_pca()`.
+* Added `project_to_reference_pca()` and `run_tumor2line_with_reference()` for projecting new query and candidate samples into a frozen reference representation.
+
 # Tumor2Line 0.1.2
 
 * Generalized the core API from a tumor-only first population to a `query` population, allowing tumors, PDOs, PDXs, organoids, and other tumor-derived samples.
@@ -15,7 +20,3 @@
 * Added scaled-PCA representation and population-aware unbalanced optimal transport matching.
 * Added evaluation using known tumor-cell line pairs (Top1, Top3, MRR and true-pair ranks).
 * Added visualization helpers, package tests, pkgdown configuration and a complete vignette.
-
-# Tumor2Line 0.1.0
-
-* Initial development version.

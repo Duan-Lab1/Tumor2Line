@@ -18,14 +18,15 @@ run_uot_matching(
 }
 \arguments{
 \item{representation}{Numeric matrix with samples in rows and molecular
-features in columns.}
+features in columns; sample IDs must be row names.}
 
-\item{metadata}{Standardized metadata containing `SampleID`, `SampleRole`
-and `lineage`.}
+\item{metadata}{Data frame containing `SampleID`, `SampleRole` and `lineage`.}
 
 \item{candidate_scope}{Either `"within_lineage"` or `"global"`.}
 
-\item{distance}{Distance metric: `"euclidean"`, `"manhattan"` or `"cosine"`.}
+\item{distance}{Distance metric: `"euclidean"`, `"manhattan"` or `"cosine"`.
+The default Euclidean cost is mean squared L2 distance divided by the
+number of retained PCs.}
 
 \item{epsilon}{Entropic regularization parameter.}
 
@@ -38,19 +39,14 @@ and `lineage`.}
 \item{tolerance}{Convergence tolerance.}
 }
 \value{
-A tibble containing all query-cell-line candidate pairs, raw
-  transport masses, query-normalized matching probabilities, query and
-  cell-line total transported masses, molecular costs, query-specific ranks
-  and uOT convergence information.
+A tibble containing candidate pairs, raw transport masses,
+  row-normalized matching probabilities, molecular costs, ranks and uOT
+  convergence information.
 }
 \description{
 Matches a query population and candidate cell-line population jointly within
 cancer lineage or across a global candidate pool using an entropically
-regularized unbalanced Sinkhorn algorithm.
-}
-\details{
-The raw uOT transport plan is retained as `transport_mass`. For each query,
-transport masses are additionally normalized across its candidate cell lines
-to obtain `matching_probability`. Query-specific candidate ranks are based on
-these normalized matching probabilities.
+regularized unbalanced Sinkhorn algorithm. The raw transport plan is retained
+as `transport_mass`; row-normalized transport mass is reported as
+`matching_probability` and used to rank candidate cell lines for each query.
 }
